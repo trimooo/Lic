@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Images</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div id="up" class="containerr">
+        <h1 class="title">Webcam Images</h1>
+        <a href="../" class="back-link">Go Back</a>
+        <button onclick="refreshPage()">Refresh</button>
+        <a href="#o" class="image-category-link original-link">
+            <h2 class="image-category-title">Original Images</h2>
+        </a>
+        <a href="#bw" class="image-category-link bw-link">
+            <h2 class="image-category-title">BW Images</h2>
+        </a>
+    </div>
+
+    <div class="body">
+        <div class="container">
+            <h1>Search by Date and Time</h1>
+            <form action="/search" method="POST" class="search-form">
+                <label for="datetime">Enter Date and Time:</label>
+                <input type="text" id="datetime" name="datetime" placeholder="YYYYMMDDHHMMSS">
+                <button type="submit">Search</button>
+            </form>
+        </div>
+    </div>
+
+
+    <section class="image-category" id="o">
+        <h2 class="image-category-title">Original Images</h2>
+        <div class="image-container">
+            {% for filename in original_images %}
+                <div class="image-wrapper">
+                    <img src="{{ url_for('uploaded_file', folder='originals', filename=filename) }}" alt="Original Image">
+                    <p class="image-info">Date and Time: {{ filename.split('_')[1][:-4] }}</p>
+                    <p class="image-info">Camera: {{ filename.split('_')[0] }}</p>
+                </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="image-category" id="bw">
+        <h2 class="image-category-title" style="display: inline-block; margin-right: 10px;">Black and White (BW) Images</h2><a href="#up" style="color: red;" >Up</a> 
+        <div class="image-container">
+            {% for filename in bw_images %}
+                <div class="image-wrapper">
+                    <img src="{{ url_for('uploaded_file', folder='blackwhite', filename=filename) }}" alt="BW Image">
+                    <p class="image-info">Date and Time: {{ filename.split('_')[1][:-4] }}</p>
+                    <p class="image-info">Camera: {{ filename.split('_')[0] }}</p>
+                </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <script src="../static/script.js"></script>
+</body>
+</html>

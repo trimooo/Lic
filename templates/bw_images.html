@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Black and White Images</title>
+</head>
+<body>
+    <h1>Black and White Images</h1>
+    <div class="image-container">
+        {% for filename in bw_images %}
+            <img src="{{ url_for('uploaded_file', folder='bw', filename=filename) }}" alt="bw Image">
+        {% endfor %}
+    </div>
+</body>
+</html>

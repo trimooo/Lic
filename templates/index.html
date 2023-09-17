@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>License Plate Recognition</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
+</head>
+<body>
+    <header>
+        <h1>License Plate Recognition</h1>
+    </header>
+    <main>
+        <div class="video-container">
+            <img src="{{ url_for('video_feed') }}" alt="License Plate Video Stream" id="video-stream" autoplay>
+        </div>
+        <div class="controls">
+            <button id="start-btn" disabled>Camera Start Automatically</button>
+        </div>
+    </main>
+    <footer>
+        <a href="{{ url_for('images') }}" class="view-images-link">View Images</a>
+    </footer>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
