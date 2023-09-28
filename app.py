@@ -6,13 +6,15 @@ import os
 from flask import Flask, render_template, Response, send_from_directory, request
 from datetime import datetime
 
+
 app = Flask(__name__)
+
 
 # Define the camera status variable
 camera_active = False
 
 # Load the Haar cascade for Russian plate numbers
-plate_cascade = cv2.CascadeClassifier("C://haarcascade_russian_plate_number.xml")
+plate_cascade = cv2.CascadeClassifier("C://Users/Trimi/Lic/haarcascade_russian_plate_number.xml")
 
 # Define the paths for saving images
 output_folder = 'web_output/'
@@ -64,7 +66,7 @@ def process_video():
                     print("License plate detected:", text)
 
                     # Get the current date and time for image filenames
-                    current_datetime = datetime.now().strftime('%Y%m%d%H%M%S')
+                    current_datetime = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
                     # Save the original image
                     original_image_filename = os.path.join(originals_folder, f'original_{current_datetime}.png')
@@ -82,7 +84,7 @@ def process_video():
         frame_bytes = jpeg_frame.tobytes()
 
         yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
 @app.route('/')
 def index():
@@ -117,35 +119,14 @@ def uploaded_file(folder, filename):
         return "Invalid folder", 404
 
 
-@app.route('/start_camera', methods=['GET'])
-def start_camera():
-    global camera_active
-    if not camera_active:
-        # Start the camera here (you should implement the camera initialization logic)
-        # Set camera_active to True when the camera is successfully started
-        camera_active = True
-        return "Camera started", 200
-    else:
-        return "Camera is already active", 400
 
-@app.route('/stop_camera', methods=['GET'])
-def stop_camera():
-    global camera_active
-    if camera_active:
-        # Stop the camera here (you should implement the camera stopping logic)
-        # Set camera_active to False when the camera is successfully stopped
-        camera_active = False
-        return "Camera stopped", 200
-    else:
-        return "Camera is not active", 400
-    
 
 
 @app.route('/search', methods=['POST'])
 def search_images():
     datetime_query = request.form['datetime']
     original_images = os.listdir(originals_folder)
-    bw_images = os.listdir(blackwhite_folder)#
+    bw_images = os.listdir(blackwhite_folder)
 
 
     # Filter images based on the datetime_query
