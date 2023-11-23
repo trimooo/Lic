@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Images</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div id="up" class="containerr">
         <h1 class="title">Webcam Images</h1>
         <a href="../" class="back-link">Go Back</a>
-        <button onclick="refreshPage()">Refresh</button>
+        <button class="but" onclick="refreshPage()">Refresh</button>
         <a href="#o" class="image-category-link original-link">
             <h2 class="image-category-title">Original Images</h2>
         </a>
@@ -21,10 +21,10 @@
 
     <div class="body">
         <div class="container">
-            <h1>Search by Date and Time</h1>
+            <h1>Search License Plate </h1>
             <form action="/search" method="POST" class="search-form">
                 <label for="datetime">Enter Date and Time:</label>
-                <input type="text" id="datetime" name="datetime" placeholder="YYYYMMDDHHMMSS">
+                <input type="text" id="datetime" name="datetime" placeholder="YYYY-MM-DD_HH-MM-SS">
                 <button type="submit">Search</button>
             </form>
         </div>
@@ -37,7 +37,7 @@
             {% for filename in original_images %}
                 <div class="image-wrapper">
                     <img src="{{ url_for('uploaded_file', folder='originals', filename=filename) }}" alt="Original Image">
-                    <p class="image-info">Date and Time: {{ filename.split('_')[1][:-4] }}</p>
+                    <p class="image-info">Date and Time: {{ filename.split('_')[1][:10] }}_{{ filename.split('_')[2][:8] }}</p>
                     <p class="image-info">Camera: {{ filename.split('_')[0] }}</p>
                 </div>
             {% endfor %}
@@ -50,7 +50,7 @@
             {% for filename in bw_images %}
                 <div class="image-wrapper">
                     <img src="{{ url_for('uploaded_file', folder='blackwhite', filename=filename) }}" alt="BW Image">
-                    <p class="image-info">Date and Time: {{ filename.split('_')[1][:-4] }}</p>
+                    <p class="image-info">Date and Time: {{ filename.split('_')[1][:10] }}_{{ filename.split('_')[2][:8] }}</p>
                     <p class="image-info">Camera: {{ filename.split('_')[0] }}</p>
                 </div>
             {% endfor %}

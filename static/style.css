@@ -1,0 +1,229 @@
+/* Global styles */
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f9f9f9; /* Light gray */
+    padding: 20px;
+    overflow: auto; /* Enable scrolling when necessary */
+    overflow-x: hidden; /* Hide horizontal scrollbar */
+    box-sizing: border-box;
+    color: #333; /* Dark gray text */
+}
+
+body::-webkit-scrollbar {
+    width: 0;
+}
+
+body::-webkit-scrollbar-track {
+    background: transparent; /* Hide scrollbar track */
+}
+
+body::-webkit-scrollbar-thumb {
+    background: transparent; /* Hide scrollbar thumb */
+}
+
+/* Title */
+.title {
+    text-align: center;
+    font-size: 3em; /* Larger font size */
+    margin: 10px 0 20px;
+    color: #333;
+    text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.3); /* Text shadow */
+}
+
+/* Navigation Links */
+.nav-link {
+    text-decoration: none;
+    color: #3498db;
+    margin-bottom: 10px;
+    display: inline-block;
+    padding: 10px 20px;
+    border-radius: 20px; /* Rounded corners */
+    margin-left: 10px;
+    transition: background-color 0.3s ease, color 0.3s ease; /* Smooth hover transition */
+}
+
+.nav-link:hover {
+    background-color: #3498db;
+    color: white;
+}
+
+/* Container Styles */
+.container {
+    background-color: white;
+    padding: 40px; /* Increased padding */
+    border-radius: 20px; /* More rounded corners */
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.3); /* Subtle box shadow */
+    max-width: 900px; /* Slightly wider container */
+    margin: 0 auto;
+}
+
+/* Search Form Styles */
+.search-form {
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+    align-items: center;
+    position: relative;
+}
+
+.search-form label {
+    font-size: 24px; /* Larger font size */
+    margin-bottom: 10px; /* Increased margin */
+    color: #333;
+}
+
+.search-form input[type="text"] {
+    padding: 15px; /* Increased padding */
+    margin-bottom: 20px; /* Increased margin */
+    border: 2px solid #ccc; /* Thicker border */
+    border-radius: 20px; /* More rounded corners */
+    font-size: 20px; /* Larger font size */
+}
+
+.search-form button {
+    padding: 18px 30px; /* Adjusted padding */
+    border: none;
+    border-radius: 20px; /* More rounded corners */
+    background: linear-gradient(45deg, #ff3399, #cc66ff); /* Gradient background */
+    color: white;
+    font-size: 24px; /* Larger font size */
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.3s ease; /* Smooth hover transition */
+}
+
+.search-form button:hover {
+    background: linear-gradient(45deg, #ff1a75, #b300b3); /* Darker gradient on hover */
+    transform: scale(1.1); /* Slightly larger on hover */
+}
+
+/* Image Category Styles */
+.image-category {
+    margin-top: 50px; /* Increased margin */
+}
+
+.image-category-title {
+    font-size: 36px; /* Larger font size */
+    color: #333;
+    margin-bottom: 20px; /* Increased margin */
+}
+
+.image-container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-around;
+    margin-top: 20px; /* Decreased margin */
+}
+
+.image-wrapper {
+    margin-bottom: 40px; /* Increased margin */
+    padding: 20px; /* Increased padding */
+    background-color: white;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.3); /* Subtle box shadow */
+    border-radius: 20px; /* More rounded corners */
+    width: 400px; /* Wider image container */
+    transition: transform 0.2s;
+}
+
+.image-wrapper img {
+    width: 100%;
+    border-radius: 20px; /* More rounded corners */
+}
+
+.image-wrapper:hover {
+    transform: scale(1.05); /* Slightly larger on hover */
+}
+
+.image-info {
+    margin: 10px 0; /* Adjusted margin */
+    font-size: 20px; /* Larger font size */
+    color: #555;
+}
+/* Back Link Styles */
+.back-link {
+    text-decoration: none;
+    display: inline-block;
+    color: #3498db;
+    font-size: 24px;
+    margin-bottom: 20px;
+    padding: 10px 20px;
+    border: 2px solid #3498db;
+    border-radius: 20px;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.back-link:hover {
+    background-color: #3498db;
+    color: white;
+}
+
+/* Image Category Title Styles */
+.image-category-title {
+    font-size: 48px;
+    color: #3498db; /* Changed color to a more prominent one */
+    margin-bottom: 20px;
+}
+
+/* Button Styles */
+button {
+    font-size: 24px;
+    padding: 15px 30px; /* Adjusted padding */
+    margin: 10px;
+    border-radius: 20px;
+    transition: background-color 0.3s ease, transform 0.3s ease;
+}
+
+button:hover {
+    background-color: #3498db;
+    color: white;
+    transform: scale(1.1);
+}
+
+/* Image Category Styles */
+.image-category {
+    margin-top: 50px;
+    text-align: center; /* Centered text */
+}
+
+.image-category-title {
+    font-size: 48px; /* Larger font size */
+    color: #333;
+    margin-bottom: 20px;
+}
+
+.image-category-link {
+    text-decoration: none;
+    color: #3498db;
+    font-size: 36px; /* Larger font size */
+    border-bottom: 2px solid transparent;
+    transition: border-bottom 0.3s ease;
+}
+
+.image-category-link:hover {
+    border-bottom: 2px solid #3498db;
+}
+
+/* Black & White Link Styles */
+.bw-link {
+    text-decoration: none;
+    color: #333;
+    font-size: 24px;
+    transition: color 0.3s ease;
+}
+
+.bw-link:hover {
+    color: #000;
+}
+
+/* Original Link Styles */
+.original-link {
+    text-decoration: none;
+    font-size: 24px;
+    color: #2980b9;
+    border-bottom: 1px dashed #2980b9;
+    transition: color 0.3s ease, border-bottom 0.3s ease;
+}
+
+.original-link:hover {
+    color: #3498db;
+    border-bottom: 1px dashed #3498db;
+}

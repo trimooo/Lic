@@ -4,11 +4,11 @@ import pytesseract
 import re
 import os
 from flask import Flask, render_template, Response, send_from_directory, request
+from flask_socketio import SocketIO
 from datetime import datetime
 
-
 app = Flask(__name__)
-
+socketio = SocketIO(app)
 
 # Define the camera status variable
 camera_active = False
@@ -83,12 +83,23 @@ def process_video():
         ret, jpeg_frame = cv2.imencode('.jpg', frame)
         frame_bytes = jpeg_frame.tobytes()
 
+        # Emit the frame to the WebSocket clients
+        socketio.emit('video_feed', {'frame': frame_bytes}, namespace='/video')
+
         yield (b'--frame\r\n'
-                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@socketio.on('connect', namespace='/video')
+def test_connect():
+    print("Client Connected")
+
+@socketio.on('disconnect', namespace='/video')
+def test_disconnect():
+    print("Client Disconnected")
 
 @app.route('/video_feed')
 def video_feed():
@@ -139,4 +150,4 @@ def search_images():
 
 
 if __name__ == '__main__':
-   app.run(debug=True)
+    socketio.run(app, debug=True)
