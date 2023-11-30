@@ -1,0 +1,9 @@
+{
+    "functions": {
+      "api/**/*.py": {
+        "runtime": "python3.8",
+        "includeFiles": ["C://Users/Trimi/Lic/haarcascade_russian_plate_number.xml"]
+      }
+    }
+  }
+  

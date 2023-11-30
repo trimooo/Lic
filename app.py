@@ -14,7 +14,8 @@ socketio = SocketIO(app)
 camera_active = False
 
 # Load the Haar cascade for Russian plate numbers
-plate_cascade = cv2.CascadeClassifier("C://Users/Trimi/Lic/haarcascade_russian_plate_number.xml")
+plate_cascade = cv2.CascadeClassifier("api/haarcascade_russian_plate_number.xml")
+
 
 # Define the paths for saving images
 output_folder = 'web_output/'
