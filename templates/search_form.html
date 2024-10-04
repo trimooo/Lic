@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kërko Targat</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
+</head>
+<body>
+    <header>
+        <h1>Kërko Targat</h1>
+    </header>
+    <main>
+        <form action="{{ url_for('search_images') }}" method="post">
+            <input type="text" name="search" placeholder="Vendosni targën ose një pjesë të saj">
+            <button type="submit">Kërko</button>
+        </form>
+    </main>
+    <footer>
+        <a href="{{ url_for('index') }}">Kthehu në Faqen Kryesore</a>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rezultatet e Kërkimit të Targave</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
+</head>
+<body>
+    <header>
+        <h1 style="color: white;">Rezultatet e Kërkimit të Targave</h1>
+    </header>
+    <main>
+        {% if error %}
+            <p class="error">{{ error }}</p>
+        {% elif results %}
+            <h2>Rezultatet për "{{ search_query }}"</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Targa</th>
+                        <th>Data dhe Ora</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for result in results %}
+                    <tr>
+                        <td>{{ result['plate_number'] }}</td>
+                        <td>{{ result['timestamp'] }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>Nuk u gjetën rezultate për "{{ search_query }}"</p>
+        {% endif %}
+        <a href="{{ url_for('search_images') }}">Kërko përsëri</a>
+    </main>
+    <footer>
+        <a href="{{ url_for('index') }}">Kthehu në Faqen Kryesore</a>
+    </footer>
+</body>
+</html>
