@@ -20,6 +20,7 @@
                     <tr>
                         <th>Targa</th>
                         <th>Data dhe Ora</th>
+                        <th>Shiko Imazhin</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -27,6 +28,9 @@
                     <tr>
                         <td>{{ result['plate_number'] }}</td>
                         <td>{{ result['timestamp'] }}</td>
+                        <td><a href="{{ url_for('view_image', image_path=result['bw_image_url']) }}">View BW Image</a></td>
+            <td> <a href="{{ url_for('view_image', image_path=result['original_image_url']) }}">View Original Image</a></td>
+                        
                     </tr>
                     {% endfor %}
                 </tbody>

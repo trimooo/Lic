@@ -3,60 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Images</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <title>License Plate Images</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='images.css') }}">
 </head>
 <body>
-    <div id="up" class="containerr">
-        <h1 class="title">Webcam Images</h1>
-        <a href="../" class="back-link">Go Back</a>
-        <button onclick="refreshPage()">Refresh</button>
-        <a href="#o" class="image-category-link original-link">
-            <h2 class="image-category-title">Original Images</h2>
-        </a>
-        <a href="#bw" class="image-category-link bw-link">
-            <h2 class="image-category-title">BW Images</h2>
-        </a>
+
+    <div class="container">
+        <h1>License Plate Detection Dashboard</h1>
+
+        <!-- Navigation Buttons -->
+        <div class="navigation-buttons">
+            <a href="{{ url_for('index') }}" class="btn secondary-btn">Kthehu tek Kamera</a>
+            <a href="{{ url_for('images') }}" class="btn secondary-btn">Kthehu tek Kerkimi Universal</a>
+            <button onclick="location.reload();" class="btn secondary-btn">Refresko faqen</button>
+        </div>
+
+        <!-- Search Section -->
+        <div class="search-upload-container">
+            <div class="form-container search-container">
+                <h2>Kërko Targën e Vetures</h2>
+                <form action="{{ url_for('search_images') }}" method="post">
+                    <div class="input-group">
+                        <input type="text" name="search" placeholder="Kërko për targë ose kohë" class="input-field">
+                        <select name="search_type" class="input-field">
+                            <option value="plate">Numri i Targës</option>
+                            <option value="time">Koha</option>
+                        </select>
+                        <button type="submit" class="btn primary-btn">Kërko</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Upload Section -->
+            <div class="form-container upload-container">
+                <h2>Ngarko një Targë të re</h2>
+                <form action="{{ url_for('upload_plate') }}" method="post" enctype="multipart/form-data">
+                    <input type="text" name="plate_number" required placeholder="Numri i Targës së Vetures" class="input-field">
+                    <input type="text" name="location" required placeholder="Lokacioni" class="input-field">
+                    <input type="file" name="bw_image" required class="input-field">
+                    <input type="file" name="original_image" required class="input-field">
+                    <button type="submit" class="btn primary-btn">Ngarko</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Detected Plates Section -->
+        <div class="plates-container">
+            <h2>Targat e Detektuara</h2><br>
+            {% if plates %}
+                {% for plate in plates %}
+                <div class="plate-card">
+                    <div class="plate-info">
+                        <strong>Numri i Targës:</strong> {{ plate['plate_number'] }}
+                    </div>
+                    <div class="plate-info">
+                        <strong>Koha:</strong> {{ plate['timestamp'] }}
+                    </div>
+                    <div class="plate-info">
+                        <strong>Lokacioni:</strong> {{ plate['location'] }}
+                    </div>
+
+                    {% if plate['original_image_path'] %}
+                    <img src="{{ url_for('uploaded_file', folder='originals', filename=plate['original_image_path']) }}" alt="Imazhi Origjinal" class="plate-image" onclick="openFullScreen(this)">
+                    {% else %}
+                        <p>Nuk ka imazh origjinal të disponueshëm.</p>
+                    {% endif %}
+
+                    {% if plate['bw_image_path'] %}
+                    <img src="{{ url_for('uploaded_file', folder='blackwhite', filename=plate['bw_image_path']) }}" alt="Imazhi Bardh e Zi" class="plate-image" onclick="openFullScreen(this)">
+                    {% else %}
+                        <p>Nuk disponohet asnjë imazh bardh e zi.</p>
+                    {% endif %}
+                    
+                    <!-- Delete Button -->
+                    <button type="button" class="btn delete-btn" onclick="openModal('{{ url_for('delete_plate', plate_id=plate['id']) }}')">Fshij</button>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p>Nuk është zbuluar ende asnjë targë.</p>
+            {% endif %}
+        </div>
     </div>
 
-    <div class="body">
-        <div class="container">
-            <h1>Search by Date and Time</h1>
-            
-            <form action="{{ url_for('search_images') }}" method="post">
-                <input type="text" name="search" placeholder="Vendosni targën ose një pjesë të saj">
-                <button type="submit">Kërko</button>
+    <!-- Confirmation Modal -->
+    <div id="confirmation-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2>Je i sigurt që dëshiron ta fshish këtë Targ?</h2><br>
+            <form id="delete-form" action="" method="post">
+                <button type="submit" class="btn delete-btn">Po, fshi</button>
+                <button type="button" class="btn" onclick="closeModal()">Anuloje</button>
             </form>
         </div>
     </div>
 
+    <!-- Fullscreen Image View -->
+    <div id="fullscreen-modal" class="fullscreen-modal">
+        <span class="close" onclick="closeFullScreen()">&times;</span>
+        <img class="fullscreen-image" id="fullscreen-img">
+    </div>
 
-    <section class="image-category" id="o">
-        <h2 class="image-category-title">Original Images</h2>
-        <div class="image-container">
-            {% for filename in original_images %}
-                <div class="image-wrapper">
-                    <img src="{{ url_for('uploaded_file', folder='originals', filename=filename) }}" alt="Original Image">
-                    <p class="image-info">Date and Time: {{ filename.split('_')[1][:-4] }}</p>
-                    <p class="image-info">Camera: {{ filename.split('_')[0] }}</p>
-                </div>
-            {% endfor %}
-        </div>
-    </section>
-
-    <section class="image-category" id="bw">
-        <h2 class="image-category-title" style="display: inline-block; margin-right: 10px;">Black and White (BW) Images</h2><a href="#up" style="color: red;" >Up</a> 
-        <div class="image-container">
-            {% for filename in bw_images %}
-                <div class="image-wrapper">
-                    <img src="{{ url_for('uploaded_file', folder='blackwhite', filename=filename) }}" alt="BW Image">
-                    <p class="image-info">Date and Time: {{ filename.split('_')[1][:-4] }}</p>
-                    <p class="image-info">Camera: {{ filename.split('_')[0] }}</p>
-                </div>
-            {% endfor %}
-        </div>
-    </section>
-
-    <script src="../static/script.js"></script>
+    <script src="{{ url_for('static', filename='images.js') }}"></script>
 </body>
 </html>
