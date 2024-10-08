@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', function() {
   fetchStats();
 
   // Set up periodic stats update
-  setInterval(fetchStats, 1000); // Update every minute
+  setInterval(fetchStats, 5000); // Update every minute
 
   startBtn.addEventListener('click', function() {
       if (startBtn.textContent === 'Camera Start Automatically') {
@@ -69,4 +69,52 @@ hourDist.innerHTML = data.hour_distribution.map(h => {
             
 
         });
+
+        function fetchPlateStatus() {
+            const plateInfo = document.getElementById('plate-info');
+            const notDetected = plateInfo.querySelector('.not-detected');
+            const plateNumber = plateInfo.querySelector('.plate-number');
+            const timeStamp = plateInfo.querySelector('.time-stamp');
+    
+            if (isScanning) {
+                notDetected.textContent = 'Scanning for plates...';
+                notDetected.style.display = 'block';
+                plateNumber.style.display = 'none';
+                timeStamp.style.display = 'none';
+            }
+    
+            fetch('/get_last_detected_plate')
+                .then(response => response.json())
+                .then(data => {
+                    isScanning = false; // Scanning is complete
+    
+                    if (data && data.plate) {
+                        notDetected.style.display = 'none';
+                        plateNumber.style.display = 'block';
+                        timeStamp.style.display = 'block';
+    
+                        // Update plate number and timestamp
+                        plateNumber.textContent = data.plate;
+                        timeStamp.textContent = `Last detected at: ${new Date().toLocaleTimeString()}`;
+                    } else {
+                        notDetected.textContent = 'Plate not detected';
+                        notDetected.style.display = 'block';
+                        plateNumber.style.display = 'none';
+                        timeStamp.style.display = 'none';
+                    }
+                })
+                .catch(error => {
+                    console.error("Error fetching plate status:", error);
+                    notDetected.textContent = 'Plate not detected';
+                    notDetected.style.display = 'block';
+                    plateNumber.style.display = 'none';
+                    timeStamp.style.display = 'none';
+                });
+        }
+    
+        // Fetch plate status every 5 seconds to check for updates
+        setInterval(() => {
+            isScanning = true; // Reset scanning state before fetching
+            fetchPlateStatus();
+        }, 5000); // Change interval to your desired time (5000 ms = 5 seconds)
 }})

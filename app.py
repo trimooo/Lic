@@ -228,6 +228,34 @@ def uploaded_file(folder, filename):
     # Serve the uploaded file based on the folder and filename
     return send_from_directory(os.path.join(app.root_path, 'web_output', folder), filename)
 
+@app.route('/get_last_detected_plate', methods=['GET'])
+def get_last_detected_plate():
+    conn = get_db_connection()
+    
+    # Query to get the last detected plate and its timestamp
+    last_plate = conn.execute('''
+        SELECT plate_number, timestamp 
+        FROM plates 
+        ORDER BY timestamp DESC 
+        LIMIT 1
+    ''').fetchone()
+    
+    conn.close()
+    
+    if last_plate:
+        response = {
+            "plate": last_plate['plate_number'],  # The plate detected
+            "timestamp": last_plate['timestamp']   # The static time when it was detected
+        }
+    else:
+        response = {
+            "plate": None,
+            "timestamp": None
+        }
+    
+    return jsonify(response)
+
+
 
 @app.route('/get_stats', methods=['GET'])
 def get_stats():
