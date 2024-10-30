@@ -9,7 +9,7 @@
 <body>
 
     <div class="container">
-        <h1>License Plate Detection Dashboard</h1>
+        <h1>Paneli i zbulimit të targave</h1>
 
         <!-- Navigation Buttons -->
         <div class="navigation-buttons">
@@ -91,12 +91,12 @@
             <span class="close" onclick="closeModal()">&times;</span>
             <h2>Je i sigurt që dëshiron ta fshish këtë Targ?</h2><br>
             <form id="delete-form" action="" method="post">
-                <button type="submit" class="btn delete-btn">Po, fshi</button>
+                <button type="submit" class="btn delete-btn">Po, Fshij</button>
                 <button type="button" class="btn" onclick="closeModal()">Anuloje</button>
             </form>
         </div>
     </div>
-
+    <div id="platesContainer"></div>
     <!-- Fullscreen Image View -->
     <div id="fullscreen-modal" class="fullscreen-modal">
         <span class="close" onclick="closeFullScreen()">&times;</span>

@@ -7,6 +7,8 @@ from flask import Flask, render_template, Response, send_from_directory, request
 from datetime import datetime
 import sqlite3
 from collections import Counter
+from time import time
+from collections import defaultdict
 from werkzeug.utils import secure_filename
 import threading
 
@@ -58,13 +60,45 @@ init_db()
 # Global variable to store detected plates
 detected_plates = []
 
+
+# Add this after the detected_plates declaration
+plate_tracking = defaultdict(lambda: {'first_seen': None, 'last_seen': None, 'alert_shown': False})
+
+def check_plate_duration(plate_number, current_time):
+    """Check if a plate has been present for more than 5 minutes"""
+    if plate_number not in plate_tracking:
+        plate_tracking[plate_number] = {
+            'first_seen': current_time,
+            'last_seen': current_time,
+            'alert_shown': False
+        }
+    else:
+        plate_tracking[plate_number]['last_seen'] = current_time
+        
+    duration = current_time - plate_tracking[plate_number]['first_seen']
+    should_alert = duration >= 30 and not plate_tracking[plate_number]['alert_shown']  # 300 seconds = 5 minutes
+    
+    if should_alert:
+        plate_tracking[plate_number]['alert_shown'] = True
+        
+    return should_alert
+
+
+last_detection = {
+    'plate_number': None,
+    'timestamp': None,
+    'detection_time': None
+}
+
 def process_video():
-    global detected_plates  # Use global variable to access it in other routes
+    global detected_plates, last_detection
     while True:
         ret, frame = cap.read()
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         plates = plate_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
 
+        plate_found = False
+        
         for (x, y, w, h) in plates:
             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
             plate_roi = gray[y:y+h, x:x+w]
@@ -77,34 +111,43 @@ def process_video():
             if text:
                 clean_text = re.sub(r'\W+', '', text).upper()
                 if len(clean_text) >= 4:
-                    print("License plate detected:", clean_text)
+                    plate_found = True
                     
-                    current_datetime = datetime.now().strftime('%Y%m%d%H%M%S')
-                    original_image_filename = f'original_{current_datetime}_{clean_text}.png'
-                    bw_image_filename = f'bw_{current_datetime}_{clean_text}.png'
-                    
-                    original_image_path = os.path.join(originals_folder, original_image_filename)
-                    bw_image_path = os.path.join(blackwhite_folder, bw_image_filename)
-                    
-                    cv2.imwrite(original_image_path, frame)
-                    cv2.imwrite(bw_image_path, img_thresh)
+                    # Only update timestamp if it's a new plate or first detection
+                    if last_detection['plate_number'] != clean_text:
+                        current_time = datetime.now()
+                        last_detection['plate_number'] = clean_text
+                        last_detection['timestamp'] = current_time
+                        last_detection['detection_time'] = current_time.strftime("%Y-%m-%d %H:%M:%S")
+                        
+                        # Save the image files
+                        current_datetime = current_time.strftime('%Y%m%d%H%M%S')
+                        original_image_filename = f'original_{current_datetime}_{clean_text}.png'
+                        bw_image_filename = f'bw_{current_datetime}_{clean_text}.png'
+                        
+                        original_image_path = os.path.join(originals_folder, original_image_filename)
+                        bw_image_path = os.path.join(blackwhite_folder, bw_image_filename)
+                        
+                        cv2.imwrite(original_image_path, frame)
+                        cv2.imwrite(bw_image_path, img_thresh)
 
-                    # Store detected plate in global variable
-                    detected_plates.append({
-                        'plate_number': clean_text,
-                        'timestamp': datetime.now(),
-                        'original_image_path': original_image_filename,
-                        'bw_image_path': bw_image_filename,
-                        'location': "Unknown Location"
-                    })
-
-                    conn = get_db_connection()
-                    conn.execute('INSERT INTO plates (plate_number, original_image_path, bw_image_path, location) VALUES (?, ?, ?, ?)',
-                                 (clean_text, original_image_filename, bw_image_filename, "Unknown Location"))
-                    conn.commit()
-                    conn.close()
+                        # Add to database
+                        conn = get_db_connection()
+                        conn.execute('''
+                            INSERT INTO plates 
+                            (plate_number, original_image_path, bw_image_path, location) 
+                            VALUES (?, ?, ?, ?)
+                        ''', (clean_text, original_image_filename, bw_image_filename, "Unknown Location"))
+                        conn.commit()
+                        conn.close()
 
                     cv2.putText(frame, clean_text, (x, y - 10), font, font_scale, (0, 0, 255), font_thickness)
+
+        if not plate_found:
+            # Reset detection if no plate is found
+            last_detection['plate_number'] = None
+            last_detection['timestamp'] = None
+            last_detection['detection_time'] = None
 
         ret, jpeg_frame = cv2.imencode('.png', frame)
         frame_bytes = jpeg_frame.tobytes()
@@ -135,6 +178,22 @@ def images():
 
     return render_template('images.html', plates=detected_plates)
 
+
+# Add this new route to check for prolonged detections
+@app.route('/check_prolonged_detection')
+def check_prolonged_detection():
+    if not detected_plates:
+        return jsonify({'alert': False, 'plate': None})
+    
+    latest_plate = detected_plates[-1]
+    if latest_plate.get('duration_alert', False):
+        return jsonify({
+            'alert': True,
+            'plate': latest_plate['plate_number'],
+            'timestamp': latest_plate['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+        })
+    
+    return jsonify({'alert': False, 'plate': None})
 
 
 @app.route('/delete_plate/<int:plate_id>', methods=['POST'])
@@ -230,30 +289,17 @@ def uploaded_file(folder, filename):
 
 @app.route('/get_last_detected_plate', methods=['GET'])
 def get_last_detected_plate():
-    conn = get_db_connection()
-    
-    # Query to get the last detected plate and its timestamp
-    last_plate = conn.execute('''
-        SELECT plate_number, timestamp 
-        FROM plates 
-        ORDER BY timestamp DESC 
-        LIMIT 1
-    ''').fetchone()
-    
-    conn.close()
-    
-    if last_plate:
-        response = {
-            "plate": last_plate['plate_number'],  # The plate detected
-            "timestamp": last_plate['timestamp']   # The static time when it was detected
-        }
-    else:
-        response = {
+    if last_detection['plate_number'] is None:
+        return jsonify({
             "plate": None,
-            "timestamp": None
-        }
+            "timestamp": None,
+            "detection_time": None
+        })
     
-    return jsonify(response)
+    return jsonify({
+        "plate": last_detection['plate_number'],
+        "detection_time": last_detection['detection_time']
+    })
 
 
 

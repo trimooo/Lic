@@ -35,21 +35,6 @@ window.onclick = function(event) {
 }
 
 
-function fetchDetectedPlates() {
-    fetch('/detected_plates')
-        .then(response => response.json())
-        .then(data => {
-            const platesContainer = document.getElementById('platesContainer');
-            platesContainer.innerHTML = ''; // Clear current plates
-
-            data.forEach(plate => {
-                const plateElement = document.createElement('div');
-                plateElement.innerText = plate.plate_number; // Customize as needed
-                platesContainer.appendChild(plateElement);
-            });
-        })
-        .catch(err => console.error('Error fetching plates:', err));
-}
 
 // Poll every 5 seconds
 setInterval(fetchDetectedPlates, 5000);

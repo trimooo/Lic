@@ -11,7 +11,7 @@
 <body>
     <header>
         <nav class="container glass">
-            <div class="logo">LPR System</div>
+            <div class="logo">Sistemi i njohjes së targave</div>
             <div class="nav-links">
                 <a href="#contact">Contact</a>
                 <a href="{{ url_for('images') }}" class="primary">View Detected Plates</a>
@@ -28,8 +28,12 @@
                 <div class="plate-info glass fade-in-up" id="plate-info">
                     <h2>Statusi i targës</h2>
                     <p class="not-detected pulse">Targa nuk u zbulua</p>
-                    <p class="plate-number" style="display:none;"></p>
-                    <p class="time-stamp" style="display:none;"></p>
+                    <div id="plate-info">
+                        <div class="scanning-status"></div>
+                        <div class="not-detected"></div>
+                        <div class="plate-number"></div>
+                        <div class="time-stamp"></div>
+                    </div>
                 </div>
                 <div class="controls glass fade-in-up">
                     <a href="{{ url_for('images') }}" class="primary">Shikoni Imazhet e zbuluara</a>
@@ -59,6 +63,43 @@
             </div>
         </div>
     </main>
+
+
+     <!-- Add this before the closing body tag -->
+     <div class="overlay" id="overlay"></div>
+     <div class="alert-popup" id="alertPopup">
+         <h3>Extended Presence Detected!</h3>
+         <p>License plate <span id="alertPlate"></span> has been present for more than 5 minutes.</p>
+         <p>First detected at: <span id="alertTime"></span></p>
+         <button onclick="closeAlert()">Acknowledge</button>
+     </div>
+
+     <script>
+        // Add this to your existing script.js or include it in the HTML
+        function showAlert(plate, timestamp) {
+            document.getElementById('alertPlate').textContent = plate;
+            document.getElementById('alertTime').textContent = timestamp;
+            document.getElementById('overlay').classList.add('show');
+            document.getElementById('alertPopup').classList.add('show');
+        }
+
+        function closeAlert() {
+            document.getElementById('overlay').classList.remove('show');
+            document.getElementById('alertPopup').classList.remove('show');
+        }
+
+        // Check for prolonged detections every 5 seconds
+        setInterval(() => {
+            fetch('/check_prolonged_detection')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.alert) {
+                        showAlert(data.plate, data.timestamp);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }, 5000);
+    </script>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>

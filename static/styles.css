@@ -1,8 +1,9 @@
 :root {
-    --bg-color: #6610f2;
-    --primary-color: #6f42c1;
+    --bg-color: #000;
+    --primary-color: #ddd;
     --secondary-color: #1e3a8a;
     --accent-color: #eb1b74;
+    --title-color: #ebeb1b;
     --text-color: #ffffff;
     --neon-glow: 0 0 10px var(--accent-color), 0 0 20px var(--accent-color), 0 0 30px var(--accent-color);
   }
@@ -179,7 +180,7 @@
   .stat-item h3 {
     margin-top: 0;
     font-size: 0.9rem;
-    color: var(--accent-color);
+    color: var(--title-color);
   }
   
   .stat-item p {
@@ -187,6 +188,66 @@
     margin: 0;
   }
   
+
+  .alert-popup {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: rgba(24, 22, 22, 0.95);
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    text-align: center;
+    max-width: 400px;
+}
+
+.alert-popup.show {
+    display: block;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.alert-popup h3 {
+    color: #ff3333;
+    margin-bottom: 10px;
+}
+
+.alert-popup button {
+    margin-top: 15px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 5px;
+    background-color: #007bff;
+    color: white;
+    cursor: pointer;
+}
+
+.alert-popup button:hover {
+    background-color: #0056b3;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+}
+
+.overlay.show {
+    display: block;
+}
+
   /* Animations */
   @keyframes fadeInUp {
     from {
@@ -246,3 +307,19 @@
       display: none;
     }
   }
+
+
+  .scanning-status {
+    color: #666;
+    font-style: italic;
+    margin-bottom: 8px;
+}
+
+.highlight {
+    animation: highlightFade 1s ease-out;
+}
+
+@keyframes highlightFade {
+    from { background-color: yellow; }
+    to { background-color: transparent; }
+}
