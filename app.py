@@ -3,14 +3,17 @@ import numpy as np
 import pytesseract
 import re
 import os
+import geocoder
+from geopy.geocoders import Nominatim
+import pycountry
 from flask import Flask, render_template, Response, send_from_directory, request, session, jsonify, abort, redirect, url_for
 from datetime import datetime
 import sqlite3
-from collections import Counter
+from collections import Counter, defaultdict
 from time import time
-from collections import defaultdict
-from werkzeug.utils import secure_filename
+import time
 import threading
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'
@@ -22,6 +25,7 @@ plate_cascade = cv2.CascadeClassifier("C:/Users/Trimi/haarcascade_russian_plate_
 if plate_cascade.empty():
     print("Error loading cascade file.")
 
+# Directory setup
 output_folder = 'web_output/'
 originals_folder = os.path.join(output_folder, 'originals')
 blackwhite_folder = os.path.join(output_folder, 'blackwhite')
@@ -30,12 +34,40 @@ os.makedirs(output_folder, exist_ok=True)
 os.makedirs(originals_folder, exist_ok=True)
 os.makedirs(blackwhite_folder, exist_ok=True)
 
+# Camera setup
 cap = cv2.VideoCapture(1)
 
+# Font settings
 font = cv2.FONT_HERSHEY_SIMPLEX
 font_scale = 0.6
 font_thickness = 2
 
+# Country code mappings
+COUNTRY_CODES = {
+    'AL': 'Albania',
+    'KS': 'Kosovo',
+    'MK': 'North Macedonia',
+    'ME': 'Montenegro',
+    'RS': 'Serbia',
+    'GR': 'Greece',
+    'HR': 'Croatia',
+    'IT': 'Italy',
+    'AT': 'Austria',
+    'DE': 'Germany',
+}
+
+# Initialize location tracking
+geolocator = Nominatim(user_agent="plate_detector")
+current_location = {
+    'street': None,
+    'city': None,
+    'country': None,
+    'lat': None,
+    'lon': None,
+    'last_update': None
+}
+
+# Database initialization
 def get_db_connection():
     conn = sqlite3.connect('license_plates.db')
     conn.row_factory = sqlite3.Row
@@ -47,22 +79,66 @@ def init_db():
         CREATE TABLE IF NOT EXISTS plates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             plate_number TEXT NOT NULL,
+            country_code TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             original_image_path TEXT,
             bw_image_path TEXT,
-            location TEXT
+            street TEXT,
+            city TEXT,
+            country TEXT,
+            latitude REAL,
+            longitude REAL
         )
     ''')
     conn.close()
 
-init_db()
-
-# Global variable to store detected plates
+# Global variables for tracking
 detected_plates = []
-
-
-# Add this after the detected_plates declaration
 plate_tracking = defaultdict(lambda: {'first_seen': None, 'last_seen': None, 'alert_shown': False})
+last_detection = {
+    'plate_number': None,
+    'timestamp': None,
+    'detection_time': None,
+    'country': None,
+    'street': None,
+    'city': None
+}
+
+def update_location():
+    """Background thread to update GPS location"""
+    global current_location
+    while True:
+        try:
+            g = geocoder.ip('me')
+            if g.ok:
+                lat, lon = g.latlng
+                location = geolocator.reverse(f"{lat}, {lon}")
+                address = location.raw['address']
+                current_location.update({
+                    'street': address.get('road', 'Unknown Street'),
+                    'city': address.get('city', address.get('town', 'Unknown City')),
+                    'country': address.get('country', 'Unknown Country'),
+                    'lat': lat,
+                    'lon': lon,
+                    'last_update': datetime.now()
+                })
+        except Exception as e:
+            print(f"Error updating location: {e}")
+        time.sleep(1)
+
+def detect_country_code(plate_number):
+    """Detect country code from license plate format"""
+    patterns = {
+        r'^[A-Z]{2}\d{3,5}[A-Z]{2}$': 'AL',  # Albania
+        r'^[A-Z]{2}\d{3,4}[A-Z]{2}$': 'KS',  # Kosovo
+        r'^\d{2}-[A-Z]{1,2}-\d{3}$': 'MK',   # North Macedonia
+        r'^[A-Z]{2}[A-Z0-9]{4,5}$': 'ME',    # Montenegro
+    }
+    
+    for pattern, country_code in patterns.items():
+        if re.match(pattern, plate_number):
+            return country_code
+    return 'Unknown'
 
 def check_plate_duration(plate_number, current_time):
     """Check if a plate has been present for more than 5 minutes"""
@@ -76,27 +152,23 @@ def check_plate_duration(plate_number, current_time):
         plate_tracking[plate_number]['last_seen'] = current_time
         
     duration = current_time - plate_tracking[plate_number]['first_seen']
-    should_alert = duration >= 30 and not plate_tracking[plate_number]['alert_shown']  # 300 seconds = 5 minutes
+    should_alert = duration >= 30 and not plate_tracking[plate_number]['alert_shown']
     
     if should_alert:
         plate_tracking[plate_number]['alert_shown'] = True
         
     return should_alert
 
-
-last_detection = {
-    'plate_number': None,
-    'timestamp': None,
-    'detection_time': None
-}
-
 def process_video():
     global detected_plates, last_detection
     while True:
         ret, frame = cap.read()
+        if not ret:
+            continue
+            
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         plates = plate_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
-
+        
         plate_found = False
         
         for (x, y, w, h) in plates:
@@ -112,15 +184,23 @@ def process_video():
                 clean_text = re.sub(r'\W+', '', text).upper()
                 if len(clean_text) >= 4:
                     plate_found = True
+                    country_code = detect_country_code(clean_text)
+                    country_name = COUNTRY_CODES.get(country_code, 'Unknown')
                     
-                    # Only update timestamp if it's a new plate or first detection
                     if last_detection['plate_number'] != clean_text:
                         current_time = datetime.now()
-                        last_detection['plate_number'] = clean_text
-                        last_detection['timestamp'] = current_time
-                        last_detection['detection_time'] = current_time.strftime("%Y-%m-%d %H:%M:%S")
                         
-                        # Save the image files
+                        # Update last detection info
+                        last_detection.update({
+                            'plate_number': clean_text,
+                            'timestamp': current_time,
+                            'detection_time': current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                            'country': country_name,
+                            'street': current_location['street'],
+                            'city': current_location['city']
+                        })
+
+                        # Save images
                         current_datetime = current_time.strftime('%Y%m%d%H%M%S')
                         original_image_filename = f'original_{current_datetime}_{clean_text}.png'
                         bw_image_filename = f'bw_{current_datetime}_{clean_text}.png'
@@ -131,34 +211,41 @@ def process_video():
                         cv2.imwrite(original_image_path, frame)
                         cv2.imwrite(bw_image_path, img_thresh)
 
-                        # Add to database
+                        # Save to database
                         conn = get_db_connection()
                         conn.execute('''
                             INSERT INTO plates 
-                            (plate_number, original_image_path, bw_image_path, location) 
-                            VALUES (?, ?, ?, ?)
-                        ''', (clean_text, original_image_filename, bw_image_filename, "Unknown Location"))
+                            (plate_number, country_code, original_image_path, bw_image_path, 
+                             street, city, country, latitude, longitude) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (clean_text, country_code, original_image_filename, bw_image_filename,
+                              current_location['street'], current_location['city'], country_name,
+                              current_location['lat'], current_location['lon']))
                         conn.commit()
                         conn.close()
 
-                    cv2.putText(frame, clean_text, (x, y - 10), font, font_scale, (0, 0, 255), font_thickness)
+                    # Display info on frame
+                    display_text = f"{clean_text} ({country_name})"
+                    location_text = f"{current_location['street']}, {current_location['city']}"
+                    cv2.putText(frame, display_text, (x, y - 20), font, font_scale, (0, 0, 255), font_thickness)
+                    cv2.putText(frame, location_text, (x, y - 5), font, font_scale * 0.8, (0, 255, 0), font_thickness)
 
         if not plate_found:
-            # Reset detection if no plate is found
             last_detection['plate_number'] = None
             last_detection['timestamp'] = None
             last_detection['detection_time'] = None
+            last_detection['country'] = None
+            last_detection['street'] = None
+            last_detection['city'] = None
 
         ret, jpeg_frame = cv2.imencode('.png', frame)
         frame_bytes = jpeg_frame.tobytes()
         yield (b'--frame\r\n'
                b'Content-Type: image/png\r\n\r\n' + frame_bytes + b'\r\n')
 
-# Start video processing in a separate thread
-video_thread = threading.Thread(target=process_video)
-video_thread.daemon = True  # Daemonize thread
-video_thread.start()
+# [Previous imports and setup code remains the same until the Flask routes section]
 
+# Flask routes
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -171,30 +258,43 @@ def video_feed():
 def images():
     conn = get_db_connection()
     detected_plates = conn.execute('SELECT * FROM plates ORDER BY timestamp DESC').fetchall()
-    conn.close()  # Close the connection after fetching plates
-
-    # Debugging output to verify data
-    print(detected_plates)
-
+    conn.close()
     return render_template('images.html', plates=detected_plates)
 
-
-# Add this new route to check for prolonged detections
-@app.route('/check_prolonged_detection')
-def check_prolonged_detection():
-    if not detected_plates:
-        return jsonify({'alert': False, 'plate': None})
-    
-    latest_plate = detected_plates[-1]
-    if latest_plate.get('duration_alert', False):
-        return jsonify({
-            'alert': True,
-            'plate': latest_plate['plate_number'],
-            'timestamp': latest_plate['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
-        })
-    
-    return jsonify({'alert': False, 'plate': None})
-
+@app.route('/search', methods=['GET', 'POST'])
+def search_images():
+    if request.method == 'POST':
+        search_query = request.form.get('search', '')
+        search_type = request.form.get('search_type', 'plate')
+        
+        conn = get_db_connection()
+        
+        if search_type == 'plate':
+            plates = conn.execute(''' 
+                SELECT * FROM plates 
+                WHERE plate_number LIKE ? 
+                ORDER BY timestamp DESC
+            ''', (f'%{search_query}%',)).fetchall()
+        elif search_type == 'time':
+            plates = conn.execute(''' 
+                SELECT * FROM plates 
+                WHERE timestamp LIKE ? OR strftime('%H:%M', timestamp) LIKE ?
+                ORDER BY timestamp DESC
+            ''', (f'%{search_query}%', f'%{search_query}%',)).fetchall()
+        elif search_type == 'location':
+            plates = conn.execute(''' 
+                SELECT * FROM plates 
+                WHERE street LIKE ? OR city LIKE ? OR country LIKE ?
+                ORDER BY timestamp DESC
+            ''', (f'%{search_query}%', f'%{search_query}%', f'%{search_query}%')).fetchall()
+        else:
+            plates = []
+        
+        conn.close()
+        
+        return render_template('images.html', plates=plates, search_query=search_query, search_type=search_type)
+    else:
+        return redirect(url_for('images'))
 
 @app.route('/delete_plate/<int:plate_id>', methods=['POST'])
 def delete_plate(plate_id):
@@ -221,36 +321,6 @@ def delete_plate(plate_id):
     
     return redirect(url_for('images'))
 
-@app.route('/search', methods=['GET', 'POST'])
-def search_images():
-    if request.method == 'POST':
-        search_query = request.form.get('search', '')
-        search_type = request.form.get('search_type', 'plate')
-        
-        conn = get_db_connection()
-        
-        if search_type == 'plate':
-            plates = conn.execute(''' 
-                SELECT * FROM plates 
-                WHERE plate_number LIKE ? 
-                ORDER BY timestamp DESC
-            ''', (f'%{search_query}%',)).fetchall()
-        elif search_type == 'time':
-            plates = conn.execute(''' 
-                SELECT * FROM plates 
-                WHERE timestamp LIKE ? OR strftime('%H:%M', timestamp) LIKE ?
-                ORDER BY timestamp DESC
-            ''', (f'%{search_query}%', f'%{search_query}%',)).fetchall()
-        else:
-            plates = []
-        
-        conn.close()
-        
-        return render_template('images.html', plates=plates, search_query=search_query, search_type=search_type)
-    else:
-        return redirect(url_for('images'))
-
-
 @app.route('/upload_plate', methods=['GET', 'POST'])
 def upload_plate():
     if request.method == 'POST':
@@ -270,9 +340,9 @@ def upload_plate():
             
             conn = get_db_connection()
             conn.execute('''
-                INSERT INTO plates (plate_number, timestamp, original_image_path, bw_image_path, location)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (plate_number, timestamp, original_filename, bw_filename, location))
+                INSERT INTO plates (plate_number, timestamp, original_image_path, bw_image_path, street, city)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (plate_number, timestamp, original_filename, bw_filename, location, current_location['city']))
             conn.commit()
             conn.close()
 
@@ -281,11 +351,6 @@ def upload_plate():
             return render_template('images.html', error="All fields are required."), 400
     else:
         return render_template('images.html')
-    
-@app.route('/uploads/<folder>/<filename>')
-def uploaded_file(folder, filename):
-    # Serve the uploaded file based on the folder and filename
-    return send_from_directory(os.path.join(app.root_path, 'web_output', folder), filename)
 
 @app.route('/get_last_detected_plate', methods=['GET'])
 def get_last_detected_plate():
@@ -293,15 +358,38 @@ def get_last_detected_plate():
         return jsonify({
             "plate": None,
             "timestamp": None,
-            "detection_time": None
+            "detection_time": None,
+            "country": None,
+            "street": None,
+            "city": None
         })
     
     return jsonify({
         "plate": last_detection['plate_number'],
-        "detection_time": last_detection['detection_time']
+        "detection_time": last_detection['detection_time'],
+        "country": last_detection['country'],
+        "street": last_detection['street'],
+        "city": last_detection['city']
     })
 
+@app.route('/check_prolonged_detection')
+def check_prolonged_detection():
+    if not detected_plates:
+        return jsonify({'alert': False, 'plate': None})
+    
+    latest_plate = detected_plates[-1]
+    if latest_plate.get('duration_alert', False):
+        return jsonify({
+            'alert': True,
+            'plate': latest_plate['plate_number'],
+            'timestamp': latest_plate['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+        })
+    
+    return jsonify({'alert': False, 'plate': None})
 
+@app.route('/uploads/<folder>/<filename>')
+def uploaded_file(folder, filename):
+    return send_from_directory(os.path.join(app.root_path, 'web_output', folder), filename)
 
 @app.route('/get_stats', methods=['GET'])
 def get_stats():
@@ -312,7 +400,7 @@ def get_stats():
     unique_plates = cur.execute('SELECT COUNT(DISTINCT plate_number) FROM plates').fetchone()[0]
     
     top_plates = cur.execute('''
-        SELECT plate_number, COUNT(*) as count, location
+        SELECT plate_number, COUNT(*) as count, MAX(country) as country
         FROM plates 
         GROUP BY plate_number 
         ORDER BY count DESC 
@@ -327,9 +415,9 @@ def get_stats():
     ''').fetchall()
     
     locations = cur.execute('''
-        SELECT location, COUNT(*) as count
+        SELECT city, COUNT(*) as count
         FROM plates
-        GROUP BY location
+        GROUP BY city
         ORDER BY count DESC
         LIMIT 5
     ''').fetchall()
@@ -345,4 +433,15 @@ def get_stats():
     })
 
 if __name__ == '__main__':
-   app.run(debug=True)
+    init_db()
+    # Start location tracking in background
+    location_thread = threading.Thread(target=update_location)
+    location_thread.daemon = True
+    location_thread.start()
+    
+    # Start video processing thread
+    video_thread = threading.Thread(target=process_video)
+    video_thread.daemon = True
+    video_thread.start()
+    
+    app.run(debug=True)
