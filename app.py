@@ -19,16 +19,24 @@ atexit.register(lambda: camera.release() if camera and camera.isOpened() else No
 import logging
 import warnings
 warnings.filterwarnings("ignore", category=SyntaxWarning)
+from dataclasses import dataclass
+from typing import Optional, Dict, List
+import logging
+from contextlib import contextmanager
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'
 
-
+# Plate Cascade Setup
 plate_cascade = cv2.CascadeClassifier("haarcascade_russian_plate_number.xml")
-
 if plate_cascade.empty():
     print("Error loading cascade file.")
+
 
 # Directory setup
 output_folder = 'web_output/'
@@ -47,7 +55,9 @@ else:
     
 camera_available = False 
 
-# Mock data or sample data structures
+# Global Variables
+camera = cv2.VideoCapture(0)
+camera_available = False
 detected_plates = []
 last_detection = None
 stats = {"total_detections": 100, "successful_detections": 90}
@@ -66,21 +76,46 @@ font = cv2.FONT_HERSHEY_SIMPLEX
 font_scale = 0.6
 font_thickness = 2
 
-# Country code mappings
+# Plate Detection Class
+@dataclass
+class PlateDetection:
+    plate_number: str
+    timestamp: datetime
+    country_code: str
+    location: Dict[str, str]
+    original_image_path: str
+    bw_image_path: str
+
+# Camera Manager Class
+class CameraManager:
+    def __init__(self):
+        self.camera = None
+        self.lock = threading.Lock()
+        
+    @contextmanager
+    def get_camera(self):
+        with self.lock:
+            if self.camera is None:
+                self.camera = cv2.VideoCapture(0)
+                if not self.camera.isOpened():
+                    logger.error("Failed to open camera")
+                    raise RuntimeError("Camera initialization failed")
+            try:
+                yield self.camera
+            finally:
+                if self.camera and self.camera.isOpened():
+                    self.camera.release()
+                    self.camera = None
+
+camera_manager = CameraManager()
+
+# Country Code Mapping
 COUNTRY_CODES = {
-    'AL': 'Albania',
-    'KS': 'Kosovo',
-    'MK': 'North Macedonia',
-    'ME': 'Montenegro',
-    'RS': 'Serbia',
-    'GR': 'Greece',
-    'HR': 'Croatia',
-    'IT': 'Italy',
-    'AT': 'Austria',
-    'DE': 'Germany',
+    'AL': 'Albania', 'KS': 'Kosovo', 'MK': 'North Macedonia', 'ME': 'Montenegro',
+    'RS': 'Serbia', 'GR': 'Greece', 'HR': 'Croatia', 'IT': 'Italy', 'AT': 'Austria', 'DE': 'Germany',
 }
 
-# Initialize location tracking
+# Location Tracking
 geolocator = Nominatim(user_agent="plate_detector")
 current_location = {
     'street': None,
@@ -375,7 +410,7 @@ def upload_plate():
             return render_template('images.html', error="All fields are required."), 400
     else:
         return render_template('images.html')
-
+    
 @app.route('/get_last_detected_plate', methods=['GET'])
 def get_last_detected_plate():
     if last_detection['plate_number'] is None:
@@ -395,6 +430,7 @@ def get_last_detected_plate():
         "street": last_detection['street'],
         "city": last_detection['city']
     })
+
 
 
 
