@@ -1,0 +1,11 @@
+name: license-plate-detector
+services:
+  - name: web
+    env:
+      - name: DEPLOYMENT_ENV
+        value: "cloud"
+    buildpacks:
+      - name: python
+    ports:
+      - port: 8000
+        http: true
