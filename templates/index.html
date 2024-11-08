@@ -7,6 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <script src="https://kit.fontawesome.com/d4287010a5.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
 </head>
 <body>
     <header>
@@ -22,22 +23,39 @@
     <main class="container">
         <div class="main-content">
             <div class="video-container glass fade-in-up">
-                <img src="{{ url_for('video_feed') }}" alt="Video Feed">
+                {% if not cloud_mode %}
+                    <img src="{{ url_for('video_feed') }}" alt="Video Feed">
+                {% else %}
+                    <div class="cloud-mode-message">
+                        <i class="fas fa-cloud"></i>
+                        <p>Kamera nuk është e disponueshme në modalitetin cloud</p>
+                    </div>
+                {% endif %}
+                <div id="camera-status" class="camera-status"></div>
             </div>
             <div class="side-panel">
                 <div class="plate-info glass fade-in-up" id="plate-info">
                     <h2>Statusi i targës</h2>
-                    <p class="not-detected pulse">Targa nuk u zbulua</p>
-                    <div id="plate-info">
+                    <div id="plate-details">
+                        <p class="not-detected pulse">Targa nuk u zbulua</p>
                         <div class="scanning-status"></div>
-                        <div class="not-detected"></div>
                         <div class="plate-number"></div>
                         <div class="time-stamp"></div>
+                        <div class="location-info"></div>
                     </div>
                 </div>
                 <div class="controls glass fade-in-up">
                     <a class="primary" href="{{ url_for('images') }}">Shikoni Imazhet e zbuluara</a>
                     <button id="start-btn" disabled><i class="fas fa-video"></i> Kamera nis automatikisht</button>
+                    <div class="upload-section">
+                        <form id="upload-form" class="upload-form">
+                            <input type="file" id="file-input" accept=".jpg,.jpeg,.png" class="file-input">
+                            <button type="submit" class="upload-btn">
+                                <i class="fas fa-upload"></i> Ngarko Imazhin
+                            </button>
+                        </form>
+                        <div id="upload-status" class="upload-status"></div>
+                    </div>
                 </div>
                 <div class="stats glass fade-in-up">
                     <h2>Statistikat e Sistemit</h2>
@@ -58,24 +76,26 @@
                             <h3>Shpërndarja për orë</h3>
                             <div id="hour-distribution">Po ngarkohet...</div>
                         </div>
+                        <div class="stat-item">
+                            <h3>Vendndodhjet</h3>
+                            <canvas id="locations-chart"></canvas>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </main>
 
+    <div class="overlay" id="overlay"></div>
+    <div class="alert-popup" id="alertPopup">
+        <h3>Extended Presence Detected!</h3>
+        <p>License plate <span id="alertPlate"></span> has been present for more than 5 minutes.</p>
+        <p>First detected at: <span id="alertTime"></span></p>
+        <button onclick="closeAlert()">Acknowledge</button>
+    </div>
 
-     <!-- Add this before the closing body tag -->
-     <div class="overlay" id="overlay"></div>
-     <div class="alert-popup" id="alertPopup">
-         <h3>Extended Presence Detected!</h3>
-         <p>License plate <span id="alertPlate"></span> has been present for more than 5 minutes.</p>
-         <p>First detected at: <span id="alertTime"></span></p>
-         <button onclick="closeAlert()">Acknowledge</button>
-     </div>
-
-     <script>
-        // Add this to your existing script.js or include it in the HTML
+    <script>
+        // Existing alert functions
         function showAlert(plate, timestamp) {
             document.getElementById('alertPlate').textContent = plate;
             document.getElementById('alertTime').textContent = timestamp;
@@ -88,7 +108,132 @@
             document.getElementById('alertPopup').classList.remove('show');
         }
 
-        // Check for prolonged detections every 5 seconds
+        // New functionality for camera status and statistics
+        function updateCameraStatus() {
+            fetch('/get_camera_status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusDiv = document.getElementById('camera-status');
+                    if (data.status === 'cloud') {
+                        statusDiv.innerHTML = '<p class="status-cloud"><i class="fas fa-cloud"></i> Modaliteti Cloud</p>';
+                    } else if (data.is_running) {
+                        statusDiv.innerHTML = '<p class="status-active"><i class="fas fa-video"></i> Kamera Aktive</p>';
+                    } else {
+                        statusDiv.innerHTML = '<p class="status-offline"><i class="fas fa-video-slash"></i> Kamera Joaktive</p>';
+                    }
+                });
+        }
+
+        function updateLastDetection() {
+            fetch('/get_last_detection')
+                .then(response => response.json())
+                .then(data => {
+                    const plateDetails = document.getElementById('plate-details');
+                    if (data.plate_number) {
+                        plateDetails.innerHTML = `
+                            <div class="detected">
+                                <p class="plate-number">${data.plate_number}</p>
+                                <p class="time-stamp">${data.detection_time}</p>
+                                <p class="location"><i class="fas fa-map-marker-alt"></i> ${data.street}, ${data.city}</p>
+                                <p class="country"><i class="fas fa-flag"></i> ${data.country}</p>
+                            </div>
+                        `;
+                    }
+                });
+        }
+
+        function updateStats() {
+            fetch('/get_stats')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('total-detections').textContent = data.total_detections;
+                    document.getElementById('unique-plates').textContent = data.unique_plates;
+                    
+                    const topPlatesHtml = data.top_plates
+                        .map(plate => `<div class="top-plate-item">
+                            <span class="plate">${plate.plate_number}</span>
+                            <span class="count">${plate.count}x</span>
+                        </div>`)
+                        .join('');
+                    document.getElementById('top-plates').innerHTML = topPlatesHtml;
+
+                    // Update locations chart
+                    const ctx = document.getElementById('locations-chart').getContext('2d');
+                    new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: data.locations.map(loc => loc.city),
+                            datasets: [{
+                                label: 'Detections by Location',
+                                data: data.locations.map(loc => loc.count),
+                                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                                borderColor: 'rgba(255, 255, 255, 0.6)',
+                                borderWidth: 1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        color: 'rgba(255, 255, 255, 0.8)'
+                                    }
+                                },
+                                x: {
+                                    ticks: {
+                                        color: 'rgba(255, 255, 255, 0.8)'
+                                    }
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    labels: {
+                                        color: 'rgba(255, 255, 255, 0.8)'
+                                    }
+                                }
+                            }
+                        }
+                    });
+                });
+        }
+
+        // File upload handling
+        document.getElementById('upload-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const fileInput = document.getElementById('file-input');
+            const statusDiv = document.getElementById('upload-status');
+            
+            if (!fileInput.files.length) {
+                statusDiv.innerHTML = '<p class="error">Ju lutem zgjidhni një skedar</p>';
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            statusDiv.innerHTML = '<p class="loading">Duke ngarkuar...</p>';
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    statusDiv.innerHTML = `<p class="success">Sukses! Targa të zbuluara: ${data.plates.join(', ')}</p>`;
+                    updateStats();
+                    updateLastDetection();
+                } else {
+                    statusDiv.innerHTML = `<p class="error">Gabim: ${data.error}</p>`;
+                }
+            })
+            .catch(error => {
+                statusDiv.innerHTML = '<p class="error">Ngarkimi dështoi</p>';
+            });
+        });
+
+        // Check for prolonged detections
         setInterval(() => {
             fetch('/check_prolonged_detection')
                 .then(response => response.json())
@@ -99,6 +244,16 @@
                 })
                 .catch(error => console.error('Error:', error));
         }, 5000);
+
+        // Initial updates
+        updateCameraStatus();
+        updateLastDetection();
+        updateStats();
+
+        // Periodic updates
+        setInterval(updateLastDetection, 5000);
+        setInterval(updateStats, 30000);
+        setInterval(updateCameraStatus, 10000);
     </script>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
