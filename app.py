@@ -14,6 +14,8 @@ from time import time
 import time
 import threading
 from werkzeug.utils import secure_filename
+import atexit
+atexit.register(lambda: camera.release() if camera and camera.isOpened() else None)
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'
@@ -34,8 +36,21 @@ os.makedirs(output_folder, exist_ok=True)
 os.makedirs(originals_folder, exist_ok=True)
 os.makedirs(blackwhite_folder, exist_ok=True)
 
-# Camera setup
-cap = cv2.VideoCapture(1)
+camera = cv2.VideoCapture(1)
+if not camera.isOpened():
+    print("Error: Could not open camera.")
+else:
+    print("Camera is opened successfully.")
+
+detected_plates = []
+
+# And ensure to release the camera when stopping
+def stop_camera():
+    global camera
+    if camera:
+        camera.release()
+        camera = None
+
 
 # Font settings
 font = cv2.FONT_HERSHEY_SIMPLEX
@@ -130,7 +145,7 @@ def detect_country_code(plate_number):
     """Detect country code from license plate format"""
     patterns = {
         r'^[A-Z]{2}\d{3,5}[A-Z]{2}$': 'AL',  # Albania
-        r'^[A-Z]{2}\d{3,4}[A-Z]{2}$': 'KS',  # Kosovo
+        r'^[A-Z]{2}\d{3,4}[A-Z]{2}$': 'RKS',  # Kosovo
         r'^\d{2}-[A-Z]{1,2}-\d{3}$': 'MK',   # North Macedonia
         r'^[A-Z]{2}[A-Z0-9]{4,5}$': 'ME',    # Montenegro
     }
@@ -152,7 +167,7 @@ def check_plate_duration(plate_number, current_time):
         plate_tracking[plate_number]['last_seen'] = current_time
         
     duration = current_time - plate_tracking[plate_number]['first_seen']
-    should_alert = duration >= 30 and not plate_tracking[plate_number]['alert_shown']
+    should_alert = duration >= 10 and not plate_tracking[plate_number]['alert_shown']
     
     if should_alert:
         plate_tracking[plate_number]['alert_shown'] = True
@@ -162,7 +177,7 @@ def check_plate_duration(plate_number, current_time):
 def process_video():
     global detected_plates, last_detection
     while True:
-        ret, frame = cap.read()
+        ret, frame = camera.read()
         if not ret:
             continue
             
@@ -372,6 +387,8 @@ def get_last_detected_plate():
         "city": last_detection['city']
     })
 
+
+
 @app.route('/check_prolonged_detection')
 def check_prolonged_detection():
     if not detected_plates:
@@ -390,6 +407,59 @@ def check_prolonged_detection():
 @app.route('/uploads/<folder>/<filename>')
 def uploaded_file(folder, filename):
     return send_from_directory(os.path.join(app.root_path, 'web_output', folder), filename)
+
+# Add a new detection for demonstration
+@app.route('/api/add_detection', methods=['POST'])
+def add_detection():
+    plate_number = request.json.get('plate_number')
+    image_path = request.json.get('image_path', '')
+    if plate_number:
+        detection = {
+            'id': len(detected_plates) + 1,
+            'plate_number': plate_number,
+            'timestamp': datetime.now().isoformat(),
+            'image_path': image_path
+        }
+        detected_plates.append(detection)
+        return jsonify(status="success", plate=detection), 201
+    return jsonify(status="error", message="Invalid plate number"), 400
+
+@app.route('/api/detected_plates', methods=['GET'])
+def get_detected_plates():
+    return jsonify(detected_plates)  # Ensure this data is correct
+
+@app.route('/get_camera_status', methods=['GET'])
+def get_camera_status():
+    global camera
+    try:
+        # Assuming `camera` is your OpenCV camera object
+        if camera and camera.isOpened():
+            return jsonify({'status': 'success', 'is_running': True})
+        else:
+            return jsonify({'status': 'error', 'is_running': False})
+    except Exception as e:
+        print(f"Error in get_camera_status: {e}")
+        return jsonify({'status': 'error', 'message': 'Internal server error'}), 500
+
+
+
+
+@app.route('/start_camera', methods=['POST'])
+def start_camera():
+    global camera
+    if camera is None:
+        camera = cv2.VideoCapture(1)  # Open the default camera
+        if not camera.isOpened():
+            return jsonify({'status': 'error', 'message': 'Failed to open camera'})
+    return jsonify({'status': 'success'})
+
+@app.route('/stop_camera', methods=['POST'])
+def stop_camera():
+    global camera
+    if camera and camera.isOpened():
+        camera.release()  # Stop the camera
+        camera = None  # Clear the camera object
+    return jsonify({'status': 'success'})
 
 @app.route('/get_stats', methods=['GET'])
 def get_stats():

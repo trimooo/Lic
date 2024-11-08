@@ -158,29 +158,19 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
 
-    // Check initial camera status
-    fetch('/get_camera_status')
-        .then(response => response.json())
-        .then(data => {
-            isScanning = data.is_running;
-            startBtn.textContent = isScanning ? 'Stop Camera' : 'Start Camera';
-        })
-        .catch(error => {
-            console.error('Error checking camera status:', error);
-        });
-
     function fetchStats() {
         fetch('/get_stats')
             .then(response => response.json())
             .then(data => {
+                // Update statistics elements
                 document.getElementById('total-detections').textContent = data.total_detections;
                 document.getElementById('unique-plates').textContent = data.unique_plates;
-                
+    
                 const topPlatesList = document.getElementById('top-plates');
                 topPlatesList.innerHTML = data.top_plates
                     .map(p => `<li>${p.plate_number}: ${p.count} herë</li>`)
                     .join('');
-                
+    
                 const currentTimezoneOffset = new Date().getTimezoneOffset() / 60;
                 const hourDist = document.getElementById('hour-distribution');
                 hourDist.innerHTML = data.hour_distribution.map(h => {
@@ -189,8 +179,24 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (localHour >= 24) localHour -= 24;
                     return `${localHour}:00 - ${h.count} detektime`;
                 }).join('<br>');
+            })
+            .catch(error => console.error('Error fetching stats:', error));
+    
+        // Fetch camera status and update button text
+        fetch('/get_camera_status')
+            .then(response => response.json())
+            .then(data => {
+                const startBtn = document.getElementById('start-btn');
+                let isScanning = data.is_running; // The camera status returned from the API
+                
+                // Update button text based on camera status
+                startBtn.textContent = isScanning ? 'Stop Camera' : 'Start Camera';
+            })
+            .catch(error => {
+                console.error('Error checking camera status:', error);
             });
     }
+    
 
     function updatePlateInfo() {
         fetch('/get_last_detected_plate')
@@ -207,7 +213,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (isScanning) {
                         scanningText.textContent = 'Kamera është aktive - Duke skanuar targat...';
                         scanningText.style.color = '#28a745';  // Green color for active status
-                        scanningText.style.backgroundColor = '#666'; 
                     } else {
                         scanningText.textContent = 'Kamera është ndalur';
                         scanningText.style.color = '#dc3545';  // Red color for stopped status
@@ -270,4 +275,4 @@ document.addEventListener('DOMContentLoaded', function() {
     window.closeFullScreen = closeFullScreen;
     window.openModal = openModal;
     window.closeModal = closeModal;
-});
+})

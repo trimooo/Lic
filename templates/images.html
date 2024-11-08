@@ -48,6 +48,7 @@
             </div>
         </div>
 
+        <div id="plates-container"></div>
         <!-- Detected Plates Section -->
         <div class="plates-container">
             <div class="plates-container">
@@ -89,23 +90,25 @@
             </div>
         </div>
 
-    <!-- Confirmation Modal -->
-    <div id="confirmation-modal" class="modal" style="display: none;">
-        <div class="modal-content">
-            <span class="close" onclick="closeModal()">&times;</span>
-            <h2>Je i sigurt që dëshiron ta fshish këtë Targ?</h2><br>
-            <form id="delete-form" action="" method="post">
+ <!-- Delete Confirmation Modal -->
+ <div id="confirmation-modal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeModal()">&times;</span>
+        <h2>Je i sigurt që dëshiron ta fshish këtë Targë?</h2>
+        <form id="delete-form" action="" method="post">
+            <div class="modal-buttons">
                 <button type="submit" class="btn delete-btn">Po, Fshij</button>
-                <button type="button" class="btn" onclick="closeModal()">Anuloje</button>
-            </form>
-        </div>
+                <button type="button" class="btn secondary-btn" onclick="closeModal()">Anuloje</button>
+            </div>
+        </form>
     </div>
-    <div id="platesContainer"></div>
-    <!-- Fullscreen Image View -->
-    <div id="fullscreen-modal" class="fullscreen-modal">
-        <span class="close" onclick="closeFullScreen()">&times;</span>
-        <img class="fullscreen-image" id="fullscreen-img">
-    </div>
+</div>
+
+<!-- Fullscreen Image Modal -->
+<div id="fullscreen-modal" class="fullscreen-modal">
+    <span class="close" onclick="closeFullScreen()">&times;</span>
+    <img class="fullscreen-image" id="fullscreen-img" alt="Fullscreen view">
+</div>
 
     <script src="{{ url_for('static', filename='images.js') }}"></script>
 </body>
