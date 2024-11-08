@@ -22,7 +22,7 @@ app.secret_key = 'your_secret_key_here'
 
 # Camera and image processing setup
 camera_active = False
-plate_cascade = cv2.CascadeClassifier("C:/Users/Trimi/haarcascade_russian_plate_number.xml")
+plate_cascade = cv2.CascadeClassifier("haarcascade_russian_plate_number.xml")
 
 if plate_cascade.empty():
     print("Error loading cascade file.")
@@ -36,7 +36,7 @@ os.makedirs(output_folder, exist_ok=True)
 os.makedirs(originals_folder, exist_ok=True)
 os.makedirs(blackwhite_folder, exist_ok=True)
 
-camera = cv2.VideoCapture(1)
+camera = cv2.VideoCapture(0)
 if not camera.isOpened():
     print("Error: Could not open camera.")
 else:
