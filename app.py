@@ -22,7 +22,7 @@ app.secret_key = 'your_secret_key_here'
 
 # Camera and image processing setup
 camera_active = False
-plate_cascade = cv2.CascadeClassifier("haarcascade_russian_plate_number.xml")
+plate_cascade = cv2.CascadeClassifier("C:/Users/Trimi/haarcascade_russian_plate_number.xml")
 
 if plate_cascade.empty():
     print("Error loading cascade file.")
@@ -36,21 +36,18 @@ os.makedirs(output_folder, exist_ok=True)
 os.makedirs(originals_folder, exist_ok=True)
 os.makedirs(blackwhite_folder, exist_ok=True)
 
-camera = cv2.VideoCapture(0)
+camera = cv2.VideoCapture(1)
 if not camera.isOpened():
     print("Error: Could not open camera.")
 else:
     print("Camera is opened successfully.")
-
 detected_plates = []
-
 # And ensure to release the camera when stopping
 def stop_camera():
     global camera
     if camera:
         camera.release()
         camera = None
-
 
 # Font settings
 font = cv2.FONT_HERSHEY_SIMPLEX
@@ -149,7 +146,7 @@ def detect_country_code(plate_number):
         r'^\d{2}-[A-Z]{1,2}-\d{3}$': 'MK',   # North Macedonia
         r'^[A-Z]{2}[A-Z0-9]{4,5}$': 'ME',    # Montenegro
     }
-    
+
     for pattern, country_code in patterns.items():
         if re.match(pattern, plate_number):
             return country_code
@@ -165,13 +162,13 @@ def check_plate_duration(plate_number, current_time):
         }
     else:
         plate_tracking[plate_number]['last_seen'] = current_time
-        
+
     duration = current_time - plate_tracking[plate_number]['first_seen']
     should_alert = duration >= 10 and not plate_tracking[plate_number]['alert_shown']
-    
+
     if should_alert:
         plate_tracking[plate_number]['alert_shown'] = True
-        
+
     return should_alert
 
 def process_video():
@@ -180,12 +177,12 @@ def process_video():
         ret, frame = camera.read()
         if not ret:
             continue
-            
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         plates = plate_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
-        
+
         plate_found = False
-        
+
         for (x, y, w, h) in plates:
             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
             plate_roi = gray[y:y+h, x:x+w]
@@ -201,10 +198,10 @@ def process_video():
                     plate_found = True
                     country_code = detect_country_code(clean_text)
                     country_name = COUNTRY_CODES.get(country_code, 'Unknown')
-                    
+
                     if last_detection['plate_number'] != clean_text:
                         current_time = datetime.now()
-                        
+
                         # Update last detection info
                         last_detection.update({
                             'plate_number': clean_text,
@@ -219,10 +216,10 @@ def process_video():
                         current_datetime = current_time.strftime('%Y%m%d%H%M%S')
                         original_image_filename = f'original_{current_datetime}_{clean_text}.png'
                         bw_image_filename = f'bw_{current_datetime}_{clean_text}.png'
-                        
+
                         original_image_path = os.path.join(originals_folder, original_image_filename)
                         bw_image_path = os.path.join(blackwhite_folder, bw_image_filename)
-                        
+
                         cv2.imwrite(original_image_path, frame)
                         cv2.imwrite(bw_image_path, img_thresh)
 
@@ -281,9 +278,9 @@ def search_images():
     if request.method == 'POST':
         search_query = request.form.get('search', '')
         search_type = request.form.get('search_type', 'plate')
-        
+
         conn = get_db_connection()
-        
+
         if search_type == 'plate':
             plates = conn.execute(''' 
                 SELECT * FROM plates 
@@ -304,9 +301,9 @@ def search_images():
             ''', (f'%{search_query}%', f'%{search_query}%', f'%{search_query}%')).fetchall()
         else:
             plates = []
-        
+
         conn.close()
-        
+
         return render_template('images.html', plates=plates, search_query=search_query, search_type=search_type)
     else:
         return redirect(url_for('images'))
@@ -314,15 +311,15 @@ def search_images():
 @app.route('/delete_plate/<int:plate_id>', methods=['POST'])
 def delete_plate(plate_id):
     conn = get_db_connection()
-    
+
     # Get the plate record to retrieve image paths
     plate = conn.execute('SELECT * FROM plates WHERE id = ?', (plate_id,)).fetchone()
-    
+
     if plate:
         # Delete images from the filesystem
         original_image_path = os.path.join(originals_folder, plate['original_image_path'])
         bw_image_path = os.path.join(blackwhite_folder, plate['bw_image_path'])
-        
+
         if os.path.exists(original_image_path):
             os.remove(original_image_path)
         if os.path.exists(bw_image_path):
@@ -331,9 +328,9 @@ def delete_plate(plate_id):
         # Delete the record from the database
         conn.execute('DELETE FROM plates WHERE id = ?', (plate_id,))
         conn.commit()
-    
+
     conn.close()
-    
+
     return redirect(url_for('images'))
 
 @app.route('/upload_plate', methods=['GET', 'POST'])
@@ -342,17 +339,17 @@ def upload_plate():
         plate_number = request.form.get('plate_number')
         location = request.form.get('location')
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        
+
         bw_image = request.files.get('bw_image')
         original_image = request.files.get('original_image')
-        
+
         if bw_image and original_image and plate_number and location:
             bw_filename = secure_filename(f"bw_{timestamp}_{plate_number}.png")
             original_filename = secure_filename(f"original_{timestamp}_{plate_number}.png")
-            
+
             bw_image.save(os.path.join(blackwhite_folder, bw_filename))
             original_image.save(os.path.join(originals_folder, original_filename))
-            
+
             conn = get_db_connection()
             conn.execute('''
                 INSERT INTO plates (plate_number, timestamp, original_image_path, bw_image_path, street, city)
@@ -378,7 +375,7 @@ def get_last_detected_plate():
             "street": None,
             "city": None
         })
-    
+
     return jsonify({
         "plate": last_detection['plate_number'],
         "detection_time": last_detection['detection_time'],
@@ -387,13 +384,11 @@ def get_last_detected_plate():
         "city": last_detection['city']
     })
 
-
-
 @app.route('/check_prolonged_detection')
 def check_prolonged_detection():
     if not detected_plates:
         return jsonify({'alert': False, 'plate': None})
-    
+
     latest_plate = detected_plates[-1]
     if latest_plate.get('duration_alert', False):
         return jsonify({
@@ -401,7 +396,7 @@ def check_prolonged_detection():
             'plate': latest_plate['plate_number'],
             'timestamp': latest_plate['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
         })
-    
+
     return jsonify({'alert': False, 'plate': None})
 
 @app.route('/uploads/<folder>/<filename>')
@@ -423,11 +418,9 @@ def add_detection():
         detected_plates.append(detection)
         return jsonify(status="success", plate=detection), 201
     return jsonify(status="error", message="Invalid plate number"), 400
-
 @app.route('/api/detected_plates', methods=['GET'])
 def get_detected_plates():
     return jsonify(detected_plates)  # Ensure this data is correct
-
 @app.route('/get_camera_status', methods=['GET'])
 def get_camera_status():
     global camera
@@ -440,10 +433,6 @@ def get_camera_status():
     except Exception as e:
         print(f"Error in get_camera_status: {e}")
         return jsonify({'status': 'error', 'message': 'Internal server error'}), 500
-
-
-
-
 @app.route('/start_camera', methods=['POST'])
 def start_camera():
     global camera
@@ -452,7 +441,6 @@ def start_camera():
         if not camera.isOpened():
             return jsonify({'status': 'error', 'message': 'Failed to open camera'})
     return jsonify({'status': 'success'})
-
 @app.route('/stop_camera', methods=['POST'])
 def stop_camera():
     global camera
@@ -460,15 +448,14 @@ def stop_camera():
         camera.release()  # Stop the camera
         camera = None  # Clear the camera object
     return jsonify({'status': 'success'})
-
 @app.route('/get_stats', methods=['GET'])
 def get_stats():
     conn = get_db_connection()
     cur = conn.cursor()
-    
+
     total_detections = cur.execute('SELECT COUNT(*) FROM plates').fetchone()[0]
     unique_plates = cur.execute('SELECT COUNT(DISTINCT plate_number) FROM plates').fetchone()[0]
-    
+
     top_plates = cur.execute('''
         SELECT plate_number, COUNT(*) as count, MAX(country) as country
         FROM plates 
@@ -476,14 +463,14 @@ def get_stats():
         ORDER BY count DESC 
         LIMIT 5
     ''').fetchall()
-    
+
     hour_distribution = cur.execute('''
         SELECT strftime('%H', timestamp) as hour, COUNT(*) as count 
         FROM plates 
         GROUP BY hour 
         ORDER BY hour
     ''').fetchall()
-    
+
     locations = cur.execute('''
         SELECT city, COUNT(*) as count
         FROM plates
@@ -491,9 +478,9 @@ def get_stats():
         ORDER BY count DESC
         LIMIT 5
     ''').fetchall()
-    
+
     conn.close()
-    
+
     return jsonify({
         "total_detections": total_detections,
         "unique_plates": unique_plates,
@@ -508,10 +495,8 @@ if __name__ == '__main__':
     location_thread = threading.Thread(target=update_location)
     location_thread.daemon = True
     location_thread.start()
-    
+
     # Start video processing thread
     video_thread = threading.Thread(target=process_video)
     video_thread.daemon = True
     video_thread.start()
-    
-    app.run(debug=True)
