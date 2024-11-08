@@ -17,6 +17,9 @@ from werkzeug.utils import secure_filename
 import atexit
 atexit.register(lambda: camera.release() if camera and camera.isOpened() else None)
 import logging
+import warnings
+warnings.filterwarnings("ignore", category=SyntaxWarning)
+
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'
@@ -517,7 +520,7 @@ class AddressProcessor:
         self.address = address  # Store the address as an instance variable
 
     def process_address(self):
-        match = re.search(r'^\d+', self.address, re.UNICODE)  # 'self.address' is valid inside a class method
+        match = re.search(r'^\d+', self.address, re.UNICODE)
         if match:
             return match.group(0)
         return None
