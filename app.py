@@ -16,12 +16,12 @@ import threading
 from werkzeug.utils import secure_filename
 import atexit
 atexit.register(lambda: camera.release() if camera and camera.isOpened() else None)
+import logging
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'
 
-# Camera and image processing setup
-camera_active = False
+
 plate_cascade = cv2.CascadeClassifier("haarcascade_russian_plate_number.xml")
 
 if plate_cascade.empty():
@@ -41,8 +41,14 @@ if not camera.isOpened():
     print("Error: Could not open camera.")
 else:
     print("Camera is opened successfully.")
+    
+camera_available = False 
 
+# Mock data or sample data structures
 detected_plates = []
+last_detection = None
+stats = {"total_detections": 100, "successful_detections": 90}
+camera_status = "offline" if not camera_available else "online"
 
 # And ensure to release the camera when stopping
 def stop_camera():
@@ -426,20 +432,11 @@ def add_detection():
 
 @app.route('/api/detected_plates', methods=['GET'])
 def get_detected_plates():
-    return jsonify(detected_plates)  # Ensure this data is correct
+    return jsonify(detected_plates)
 
 @app.route('/get_camera_status', methods=['GET'])
 def get_camera_status():
-    global camera
-    try:
-        # Assuming `camera` is your OpenCV camera object
-        if camera and camera.isOpened():
-            return jsonify({'status': 'success', 'is_running': True})
-        else:
-            return jsonify({'status': 'error', 'is_running': False})
-    except Exception as e:
-        print(f"Error in get_camera_status: {e}")
-        return jsonify({'status': 'error', 'message': 'Internal server error'}), 500
+    return jsonify({"camera_status": camera_status})
 
 
 
@@ -501,6 +498,33 @@ def get_stats():
         "hour_distribution": [dict(h) for h in hour_distribution],
         "top_locations": [dict(l) for l in locations]
     })
+    
+    # Conditional camera access based on availability
+if camera_available:
+    def open_camera():
+        try:
+            # Placeholder for camera access logic
+            pass
+        except Exception as e:
+            logging.error(f"Camera error: {str(e)}")
+else:
+    def open_camera():
+        logging.warning("Camera is not available in the current environment.")
+        return None
+
+class AddressProcessor:
+    def __init__(self, address):
+        self.address = address  # Store the address as an instance variable
+
+    def process_address(self):
+        match = re.search(r'^\d+', self.address, re.UNICODE)  # 'self.address' is valid inside a class method
+        if match:
+            return match.group(0)
+        return None
+# Error handling for unimplemented routes
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify(error=str(e)), 404
 
 if __name__ == '__main__':
     init_db()
