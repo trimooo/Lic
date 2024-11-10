@@ -61,6 +61,16 @@ if os.environ.get("FLASK_ENV") != "production":
     
 camera_available = True
 
+# Configuration
+class Config:
+    UPLOAD_FOLDER = 'web_output'
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
+    MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
+    DATABASE = 'license_plates.db'
+    CAMERA_WIDTH = 640
+    CAMERA_HEIGHT = 480
+    CAMERA_FPS = 20
+
 # Global Variables
 camera = cv2.VideoCapture(0)
 if not camera.isOpened():
@@ -100,21 +110,58 @@ class CameraManager:
     def __init__(self):
         self.camera = None
         self.lock = threading.Lock()
+        self.last_frame = None
+        self.frame_time = 0
         
+    def initialize_camera(self):
+        """Initialize camera with proper settings"""
+        try:
+            camera = cv2.VideoCapture(0)
+            if not camera.isOpened():
+                camera = cv2.VideoCapture(-1)
+                
+            if not camera.isOpened():
+                logger.error("No camera device found")
+                return None
+                
+            # Set camera properties
+            camera.set(cv2.CAP_PROP_FRAME_WIDTH, Config.CAMERA_WIDTH)
+            camera.set(cv2.CAP_PROP_FRAME_HEIGHT, Config.CAMERA_HEIGHT)
+            camera.set(cv2.CAP_PROP_FPS, Config.CAMERA_FPS)
+            
+            return camera
+        except Exception as e:
+            logger.error(f"Camera initialization error: {str(e)}")
+            return None
+    
     @contextmanager
     def get_camera(self):
         with self.lock:
             if self.camera is None:
-                self.camera = cv2.VideoCapture(0)
-                if not self.camera.isOpened():
-                    logger.error("Failed to open camera")
+                self.camera = self.initialize_camera()
+                if self.camera is None:
                     raise RuntimeError("Camera initialization failed")
             try:
                 yield self.camera
             finally:
-                if self.camera and self.camera.isOpened():
-                    self.camera.release()
-                    self.camera = None
+                pass
+    
+    def release_camera(self):
+        with self.lock:
+            if self.camera:
+                self.camera.release()
+                self.camera = None
+                
+    def get_frame(self):
+        """Get the latest frame with caching"""
+        current_time = time.time()
+        if self.last_frame is None or (current_time - self.frame_time) > 0.033:  # ~30 FPS
+            with self.get_camera() as camera:
+                ret, frame = camera.read()
+                if ret:
+                    self.last_frame = frame
+                    self.frame_time = current_time
+        return self.last_frame
 
 camera_manager = CameraManager()
 
@@ -327,19 +374,21 @@ def index():
 
 @app.route('/video_feed')
 def video_feed():
-    if camera is None or not camera.isOpened():
-        # Return a static image or a placeholder frame
-        frame = cv2.imread("placeholder_image.jpg")  # You can place any placeholder image here
-        ret, jpeg_frame = cv2.imencode('.jpg', frame)
-        frame_bytes = jpeg_frame.tobytes()
+    """Video streaming route"""
+    try:
         return Response(
-            b'--frame\r\n'
-            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n',
+            process_video(),
             mimetype='multipart/x-mixed-replace; boundary=frame'
         )
-    return Response(process_video(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    except Exception as e:
+        logger.error(f"Video feed error: {str(e)}")
+        return "Video feed error", 500
+    
+    # Cleanup handler
+def cleanup():
+    camera_manager.release_camera()
 
-logging.basicConfig(level=logging.DEBUG)
+atexit.register(cleanup)
 
 @app.before_request
 def log_request_info():
@@ -610,4 +659,10 @@ if __name__ == '__main__':
     video_thread.daemon = True
     video_thread.start()
     
-    app.run(debug=True)
+app.run(
+        host='0.0.0.0',      # Listen on all network interfaces
+        port=5000,           # Port can be changed as needed
+        debug=False,         # Disable debug mode in production
+        threaded=True,       # Enable threading for multiple clients
+        ssl_context='adhoc'  # Enable HTTPS (requires 'pyOpenSSL' package)
+    )
