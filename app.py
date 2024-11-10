@@ -57,7 +57,11 @@ camera_available = False
 
 # Global Variables
 camera = cv2.VideoCapture(0)
-camera_available = False
+camera_available = camera.isOpened()
+if not camera_available:
+    print("Camera is not accessible. Video streaming features will be disabled.")
+    # Optionally: return or raise an exception if the app relies on the camera
+
 detected_plates = []
 last_detection = None
 stats = {"total_detections": 100, "successful_detections": 90}
@@ -86,34 +90,22 @@ class PlateDetection:
     original_image_path: str
     bw_image_path: str
 
-# Modified Camera Manager Class
+# Camera Manager Class
 class CameraManager:
     def __init__(self):
         self.camera = None
         self.lock = threading.Lock()
-        self.is_test_environment = os.environ.get('KOYEB_APP_NAME') is not None
-        
-    def generate_test_frame(self):
-        """Generate a test frame when running in cloud environment"""
-        frame = np.zeros((480, 640, 3), dtype=np.uint8)
-        cv2.putText(frame, "Camera Not Available", (50, 240),
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        return frame
         
     @contextmanager
     def get_camera(self):
         with self.lock:
+            if self.camera is None:
+                self.camera = cv2.VideoCapture(0)
+                if not self.camera.isOpened():
+                    logger.error("Failed to open camera")
+                    raise RuntimeError("Camera initialization failed")
             try:
-                if self.is_test_environment:
-                    yield None
-                else:
-                    if self.camera is None:
-                        self.camera = cv2.VideoCapture(0)
-                        if not self.camera.isOpened():
-                            logger.warning("Failed to open camera - falling back to test mode")
-                            yield None
-                            return
-                    yield self.camera
+                yield self.camera
             finally:
                 if self.camera and self.camera.isOpened():
                     self.camera.release()
@@ -233,19 +225,9 @@ def check_plate_duration(plate_number, current_time):
 def process_video():
     global detected_plates, last_detection
     while True:
-        with camera_manager.get_camera() as cam:
-            if cam is None:
-                # Generate test frame when camera is not available
-                frame = camera_manager.generate_test_frame()
-                ret, jpeg = cv2.imencode('.jpg', frame)
-                frame_bytes = jpeg.tobytes()
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-                continue
-                
-            ret, frame = cam.read()
-            if not ret:
-                continue
+        ret, frame = camera.read()
+        if not ret:
+            continue
             
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         plates = plate_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
@@ -329,12 +311,11 @@ def process_video():
 # Flask routes
 @app.route('/')
 def index():
-    return render_template('index.html', camera_available=not camera_manager.is_test_environment)
+    return render_template('index.html')
 
 @app.route('/video_feed')
 def video_feed():
-    return Response(process_video(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(process_video(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/images')
 def images():
@@ -496,12 +477,10 @@ def add_detection():
 def get_detected_plates():
     return jsonify(detected_plates)
 
-@app.route('/get_camera_status')
+@app.route('/get_camera_status', methods=['GET'])
 def get_camera_status():
-    return jsonify({
-        "camera_status": "offline" if camera_manager.is_test_environment else "online",
-        "is_cloud": camera_manager.is_test_environment
-    })
+    return jsonify({"camera_status": camera_status})
+
 
 
 
@@ -592,7 +571,6 @@ def not_found(e):
 
 if __name__ == '__main__':
     init_db()
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8000)))
     # Start location tracking in background
     location_thread = threading.Thread(target=update_location)
     location_thread.daemon = True
