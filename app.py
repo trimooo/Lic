@@ -327,17 +327,22 @@ def index():
 
 @app.route('/video_feed')
 def video_feed():
-    if camera is None or not camera.isOpened():
-        # Return a static image or a placeholder frame
-        frame = cv2.imread("placeholder_image.jpg")  # You can place any placeholder image here
-        ret, jpeg_frame = cv2.imencode('.jpg', frame)
-        frame_bytes = jpeg_frame.tobytes()
-        return Response(
-            b'--frame\r\n'
-            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n',
-            mimetype='multipart/x-mixed-replace; boundary=frame'
-        )
-    return Response(process_video(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    camera = cv2.VideoCapture(0)  # Use appropriate index or path
+    if not camera.isOpened():
+        print("Error: Camera not accessible.")
+        return "Camera not accessible", 500
+
+    success, frame = camera.read()
+    if not success or frame is None:
+        print("Error: Frame not captured.")
+        return "Frame not captured", 500
+
+    ret, jpeg_frame = cv2.imencode('.jpg', frame)
+    if not ret:
+        print("Error: Could not encode frame.")
+        return "Encoding error", 500
+
+    return jpeg_frame.tobytes()
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -610,5 +615,4 @@ if __name__ == '__main__':
     video_thread.daemon = True
     video_thread.start()
     
-    port = int(os.environ.get("PORT", 8000))  # default to 8000 if PORT isn't set
-    app.run(host="0.0.0.0", port=port)
+    app.run(debug=True)
