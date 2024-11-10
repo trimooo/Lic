@@ -13,3 +13,8 @@ RUN pip install -r requirements.txt
 
 # Set the command to run your application
 CMD ["python", "app.py"]
+
+# Add these if you need camera support
+RUN apt-get update && apt-get install -y \
+    libgl1-mesa-glx \
+    libglib2.0-0

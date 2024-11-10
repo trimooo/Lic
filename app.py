@@ -61,11 +61,7 @@ if os.environ.get("FLASK_ENV") != "production":
     
 camera_available = True
 
-# Global Variables
-camera = cv2.VideoCapture(0)
-if not camera.isOpened():
-    print("Camera is not accessible. Video streaming features will be disabled.")
-    camera = None  # Disable camera functionality
+
 
 detected_plates = []
 last_detection = None
@@ -95,28 +91,49 @@ class PlateDetection:
     original_image_path: str
     bw_image_path: str
 
-# Camera Manager Class
-class CameraManager:
+
+
+class CameraHandler:
     def __init__(self):
         self.camera = None
-        self.lock = threading.Lock()
+        self.is_enabled = os.getenv("ENABLE_CAMERA", "false").lower() == "true"
+        self.camera_index = int(os.getenv("CAMERA_INDEX", "0"))
         
-    @contextmanager
-    def get_camera(self):
-        with self.lock:
-            if self.camera is None:
-                self.camera = cv2.VideoCapture(0)
-                if not self.camera.isOpened():
-                    logger.error("Failed to open camera")
-                    raise RuntimeError("Camera initialization failed")
-            try:
-                yield self.camera
-            finally:
-                if self.camera and self.camera.isOpened():
-                    self.camera.release()
-                    self.camera = None
+    def initialize(self) -> bool:
+        """Initialize the camera if enabled"""
+        if not self.is_enabled:
+            return False
+            
+        try:
+            self.camera = cv2.VideoCapture(self.camera_index)
+            if not self.camera.isOpened():
+                print("Warning: Could not open camera")
+                self.camera = None
+                return False
+            return True
+        except Exception as e:
+            print(f"Error initializing camera: {e}")
+            self.camera = None
+            return False
+    
+    def get_frame(self) -> Optional[np.ndarray]:
+        """Get a frame from the camera if available"""
+        if not self.camera:
+            return None
+            
+        ret, frame = self.camera.read()
+        if not ret:
+            return None
+        return frame
+    
+    def release(self):
+        """Release the camera resources"""
+        if self.camera:
+            self.camera.release()
+            self.camera = None
 
-camera_manager = CameraManager()
+# Replace the existing camera initialization code with:
+camera_handler = CameraHandler()
 
 # Country Code Mapping
 COUNTRY_CODES = {
@@ -228,6 +245,7 @@ def check_plate_duration(plate_number, current_time):
     return should_alert
 
 def process_video():
+    
     camera = cv2.VideoCapture(0)
     if not camera.isOpened():
         print("Camera is not accessible.")
@@ -236,9 +254,13 @@ def process_video():
     
     global detected_plates, last_detection
     
+    if not camera_handler.initialize():
+        print("Camera not available for video processing")
+        return
+        
     while True:
-        ret, frame = camera.read()
-        if not ret:
+        frame = camera_handler.get_frame()
+        if frame is None:
             continue
             
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -325,24 +347,51 @@ def process_video():
 def index():
     return render_template('index.html')
 
+def create_placeholder_frame():
+    """Create a placeholder frame when camera is not available"""
+    # Create a black frame with text
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    text = "Camera Not Available"
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 1
+    thickness = 2
+    color = (255, 255, 255)
+    
+    # Get text size to center it
+    text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+    text_x = (frame.shape[1] - text_size[0]) // 2
+    text_y = (frame.shape[0] + text_size[1]) // 2
+    
+    # Put text on frame
+    cv2.putText(frame, text, (text_x, text_y), font, font_scale, color, thickness)
+    return frame
+
 @app.route('/video_feed')
 def video_feed():
-    camera = cv2.VideoCapture(0)  # Use appropriate index or path
-    if not camera.isOpened():
-        print("Error: Camera not accessible.")
-        return "Camera not accessible", 500
-
-    success, frame = camera.read()
-    if not success or frame is None:
-        print("Error: Frame not captured.")
-        return "Frame not captured", 500
-
-    ret, jpeg_frame = cv2.imencode('.jpg', frame)
-    if not ret:
-        print("Error: Could not encode frame.")
-        return "Encoding error", 500
-
-    return jpeg_frame.tobytes()
+    def generate_frames():
+        while True:
+            if not camera_handler.initialize():
+                # Use placeholder frame when camera is not available
+                frame = create_placeholder_frame()
+            else:
+                frame = camera_handler.get_frame()
+                if frame is None:
+                    frame = create_placeholder_frame()
+                else:
+                    # Add any processing you want to do on the frame here
+                    pass
+            
+            # Convert frame to JPEG
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if not ret:
+                continue
+                
+            # Yield the frame in the correct format for streaming
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            
+    return Response(generate_frames(),
+                   mimetype='multipart/x-mixed-replace; boundary=frame')
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -511,9 +560,34 @@ def add_detection():
 def get_detected_plates():
     return jsonify(detected_plates)
 
-@app.route('/get_camera_status', methods=['GET'])
-def get_camera_status():
-    return jsonify({"camera_status": camera_status})
+# Update the camera handler to include status checking
+@app.route('/get_camera_status')
+def camera_status():
+    try:
+        # Check if camera is initialized
+        status = {
+            "is_enabled": camera_handler.is_enabled,
+            "is_initialized": camera_handler.camera is not None,
+            "error": None
+        }
+
+        # Check camera status
+        if camera_handler.initialize():
+            frame = camera_handler.get_frame()
+            if frame is not None:
+                status["status"] = "working"
+            else:
+                status["status"] = "no_frame"
+                status["error"] = "Cannot capture frame"
+        else:
+            status["status"] = "not_available"
+            status["error"] = "Camera initialization failed"
+
+        return jsonify(status)
+    except Exception as e:
+        app.logger.error(f"Error in /get_camera_status: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 
 
@@ -603,16 +677,59 @@ class AddressProcessor:
 def not_found(e):
     return jsonify(error=str(e)), 404
 
+@atexit.register
+def cleanup():
+    camera_handler.release()
+
+
+def check_environment():
+    """Check and log environment status at startup"""
+    logger = logging.getLogger(__name__)
+    
+    # Check camera settings
+    camera_enabled = os.getenv("ENABLE_CAMERA", "false").lower() == "true"
+    camera_index = os.getenv("CAMERA_INDEX", "0")
+    
+    logger.info(f"Camera enabled: {camera_enabled}")
+    logger.info(f"Camera index: {camera_index}")
+    
+    # Check OpenCV installation
+    logger.info(f"OpenCV version: {cv2.__version__}")
+    
+    # Check if running in production
+    is_production = os.getenv("FLASK_ENV") == "production"
+    logger.info(f"Running in production: {is_production}")
+    
+    return {
+        "camera_enabled": camera_enabled,
+        "camera_index": camera_index,
+        "is_production": is_production
+    }
+
+
 if __name__ == '__main__':
     init_db()
+    
+    # Initialize logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Check environment
+    env_status = check_environment()
+    
+    # Only start video processing if camera is enabled
+    if os.getenv("ENABLE_CAMERA", "false").lower() == "true":
+        video_thread = threading.Thread(target=process_video)
+        video_thread.daemon = True
+        video_thread.start()
+    
     # Start location tracking in background
     location_thread = threading.Thread(target=update_location)
     location_thread.daemon = True
     location_thread.start()
     
-    # Start video processing thread
-    video_thread = threading.Thread(target=process_video)
-    video_thread.daemon = True
-    video_thread.start()
-    
-    app.run(debug=True)
+    # Start the app
+    port = int(os.getenv("PORT", 8000))
+    app.run(host='0.0.0.0', port=port)
