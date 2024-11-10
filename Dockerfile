@@ -4,7 +4,7 @@ FROM python:3.12-slim
 # Install required packages for OpenCV
 RUN apt-get update && apt-get install -y libgl1
 
-# Copy your application files
+# Set working directory and copy application files
 WORKDIR /app
 COPY . /app
 

@@ -21,6 +21,11 @@
 
     <main class="container">
         <div class="main-content">
+            <div id="camera-status-message" class="alert" style="display: none;">
+                {% if not camera_available %}
+                <p>Note: Camera access is not available in cloud environment. Running in demo mode.</p>
+                {% endif %}
+            </div>
             <div class="video-container glass fade-in-up">
                 <img src="{{ url_for('video_feed') }}" alt="Video Feed">
             </div>
