@@ -15,7 +15,6 @@ import time
 import threading
 from werkzeug.utils import secure_filename
 import atexit
-atexit.register(lambda: camera.release() if camera and camera.isOpened() else None)
 import logging
 import warnings
 warnings.filterwarnings("ignore", category=SyntaxWarning)
@@ -37,7 +36,9 @@ plate_cascade = cv2.CascadeClassifier("haarcascade_russian_plate_number.xml")
 if plate_cascade.empty():
     print("Error loading cascade file.")
 
+# Configure camera
 ENABLE_CAMERA = os.getenv("ENABLE_CAMERA", "false").lower() == "true"
+camera = None
 
 if ENABLE_CAMERA:
     camera = cv2.VideoCapture(0)
@@ -45,25 +46,30 @@ if ENABLE_CAMERA:
         print("Camera is not accessible.")
         camera = None
 else:
-    print("Camera functionality is disabled in this environment.")
+    print("Camera functionality is disabled.")
     camera = None
+    
+atexit.register(lambda: camera.release() if camera and camera.isOpened() else None)
 
 # Directory setup
 output_folder = 'web_output/'
 originals_folder = os.path.join(output_folder, 'originals')
 blackwhite_folder = os.path.join(output_folder, 'blackwhite')
-
 os.makedirs(output_folder, exist_ok=True)
 os.makedirs(originals_folder, exist_ok=True)
 os.makedirs(blackwhite_folder, exist_ok=True)
 
-camera = cv2.VideoCapture(0)
-if not camera.isOpened():
-    print("Error: Could not open camera.")
-else:
-    print("Camera is opened successfully.")
+# Disable camera initialization on cloud environments like Koyeb
+camera = None
+
+# If running locally (development), allow camera access
+if os.environ.get("FLASK_ENV") != "production":
+    camera = cv2.VideoCapture(0)  # This will try to open the default camera
+    if not camera.isOpened():
+        print("Error: Could not open camera.")
+
     
-camera_available = False 
+camera_available = True
 
 # Global Variables
 camera = cv2.VideoCapture(0)
@@ -324,7 +330,24 @@ def index():
 
 @app.route('/video_feed')
 def video_feed():
+    if camera is None or not camera.isOpened():
+        # Return a static image or a placeholder frame
+        frame = cv2.imread("placeholder_image.jpg")  # You can place any placeholder image here
+        ret, jpeg_frame = cv2.imencode('.jpg', frame)
+        frame_bytes = jpeg_frame.tobytes()
+        return Response(
+            b'--frame\r\n'
+            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n',
+            mimetype='multipart/x-mixed-replace; boundary=frame'
+        )
     return Response(process_video(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+logging.basicConfig(level=logging.DEBUG)
+
+@app.before_request
+def log_request_info():
+    logger.debug("Request: %s %s", request.method, request.url)
+
 
 @app.route('/images')
 def images():
