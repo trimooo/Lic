@@ -38,18 +38,8 @@ if plate_cascade.empty():
 
 # Configure camera
 ENABLE_CAMERA = os.getenv("ENABLE_CAMERA", "false").lower() == "true"
-camera = None
 
-if ENABLE_CAMERA:
-    camera = cv2.VideoCapture(0)
-    if not camera.isOpened():
-        print("Camera is not accessible.")
-        camera = None
-else:
-    print("Camera functionality is disabled.")
-    camera = None
-    
-atexit.register(lambda: camera.release() if camera and camera.isOpened() else None)
+
 
 # Directory setup
 output_folder = 'web_output/'
@@ -238,7 +228,14 @@ def check_plate_duration(plate_number, current_time):
     return should_alert
 
 def process_video():
+    camera = cv2.VideoCapture(0)
+    if not camera.isOpened():
+        print("Camera is not accessible.")
+        camera = None
+        return
+    
     global detected_plates, last_detection
+    
     while True:
         ret, frame = camera.read()
         if not ret:
@@ -291,7 +288,7 @@ def process_video():
 
                         # Save to database
                         conn = get_db_connection()
-                        conn.execute('''
+                        conn.execute(''' 
                             INSERT INTO plates 
                             (plate_number, country_code, original_image_path, bw_image_path, 
                              street, city, country, latitude, longitude) 
