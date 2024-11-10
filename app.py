@@ -37,6 +37,16 @@ plate_cascade = cv2.CascadeClassifier("haarcascade_russian_plate_number.xml")
 if plate_cascade.empty():
     print("Error loading cascade file.")
 
+ENABLE_CAMERA = os.getenv("ENABLE_CAMERA", "false").lower() == "true"
+
+if ENABLE_CAMERA:
+    camera = cv2.VideoCapture(0)
+    if not camera.isOpened():
+        print("Camera is not accessible.")
+        camera = None
+else:
+    print("Camera functionality is disabled in this environment.")
+    camera = None
 
 # Directory setup
 output_folder = 'web_output/'
@@ -57,10 +67,9 @@ camera_available = False
 
 # Global Variables
 camera = cv2.VideoCapture(0)
-camera_available = camera.isOpened()
-if not camera_available:
+if not camera.isOpened():
     print("Camera is not accessible. Video streaming features will be disabled.")
-    # Optionally: return or raise an exception if the app relies on the camera
+    camera = None  # Disable camera functionality
 
 detected_plates = []
 last_detection = None
