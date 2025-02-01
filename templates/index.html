@@ -7,56 +7,95 @@
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <script src="https://kit.fontawesome.com/d4287010a5.js" crossorigin="anonymous"></script>
+    <style>
+        /* Add basic alert styling */
+        .overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+        }
+        
+        .alert-popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            z-index: 1000;
+            max-width: 400px;
+        }
+        
+        .alert-popup.show, .overlay.show {
+            display: block;
+        }
+    </style>
 </head>
 <body>
-    <header>
-        <nav class="container glass">
-            <div class="logo">Sistemi i njohjes së targave</div>
-            <div class="nav-links">
-                <a href="#contact">Contact</a>
-                <a href="{{ url_for('images') }}" class="primary">View Detected Plates</a>
-            </div>
-        </nav>
-    </header>
-
     <main class="container">
         <div class="main-content">
             <div class="video-container glass fade-in-up">
-                <img src="{{ url_for('video_feed') }}" alt="Video Feed">
+                <img src="{{ url_for('video_feed') }}" alt="Video Feed" id="video-feed">
             </div>
             <div class="side-panel">
-                <div class="plate-info glass fade-in-up" id="plate-info">
+                <div class="plate-info glass fade-in-up">
                     <h2>Statusi i targës</h2>
-                    <p class="not-detected pulse">Targa nuk u zbulua</p>
                     <div id="plate-info">
-                        <div class="scanning-status"></div>
-                        <div class="not-detected"></div>
-                        <div class="plate-number"></div>
-                        <div class="time-stamp"></div>
+                        <p class="scanning-status"></p>
+                        <p class="not-detected pulse">Targa nuk u zbulua</p>
+                        <p class="plate-number"></p>
+                        <p class="time-stamp"></p>
                     </div>
                 </div>
                 <div class="controls glass fade-in-up">
                     <a class="primary" href="{{ url_for('images') }}">Shikoni Imazhet e zbuluara</a>
-                    <button id="start-btn" disabled><i class="fas fa-video"></i> Kamera nis automatikisht</button>
+                    <button id="start-btn"><i class="fas fa-video"></i> Kamera nis automatikisht</button>
                 </div>
                 <div class="stats glass fade-in-up">
                     <h2>Statistikat e Sistemit</h2>
                     <div class="stats-grid">
-                        <div class="stat-item pulse">
+                        <div class="stat-item">
                             <h3>Zbulimet totale</h3>
-                            <p id="total-detections">Po ngarkohet...</p>
+                            <p id="total-detections">
+                                {% if stats %}{{ stats.total_detections }}{% else %}0{% endif %}
+                            </p>
                         </div>
-                        <div class="stat-item pulse">
+                        <div class="stat-item">
                             <h3>Targat unike</h3>
-                            <p id="unique-plates">Po ngarkohet...</p>
+                            <p id="unique-plates">
+                                {% if stats %}{{ stats.unique_plates }}{% else %}0{% endif %}
+                            </p>
                         </div>
                         <div class="stat-item">
                             <h3>Top 5 targat</h3>
-                            <div id="top-plates">Po ngarkohet...</div>
+                            <ul id="top-plates">
+                                {% if stats %}
+                                    {% for plate in stats.top_plates %}
+                                    <li>{{ plate.plate_number }} ({{ plate.count }})</li>
+                                    {% endfor %}
+                                {% else %}
+                                    Nuk ka të dhëna
+                                {% endif %}
+                            </ul>
                         </div>
                         <div class="stat-item">
                             <h3>Shpërndarja për orë</h3>
-                            <div id="hour-distribution">Po ngarkohet...</div>
+                            <div id="hour-distribution">
+                                {% if stats %}
+                                    {% for hour in stats.hour_distribution %}
+                                    {{ hour.hour }}:00 - {{ hour.count }}<br>
+                                    {% endfor %}
+                                {% else %}
+                                    Nuk ka të dhëna
+                                {% endif %}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -64,21 +103,22 @@
         </div>
     </main>
 
+    <!-- Alert System -->
+    <div class="overlay" id="overlay"></div>
+    <div class="alert-popup" id="alertPopup">
+        <h3>Extended Presence Detected!</h3>
+        <p>License plate <span id="alertPlate"></span> has been present for more than 5 minutes.</p>
+        <p>First detected at: <span id="alertTime"></span></p>
+        <button onclick="closeAlert()">Acknowledge</button>
+    </div>
 
-     <!-- Add this before the closing body tag -->
-     <div class="overlay" id="overlay"></div>
-     <div class="alert-popup" id="alertPopup">
-         <h3>Extended Presence Detected!</h3>
-         <p>License plate <span id="alertPlate"></span> has been present for more than 5 minutes.</p>
-         <p>First detected at: <span id="alertTime"></span></p>
-         <button onclick="closeAlert()">Acknowledge</button>
-     </div>
+    <script>
+        // Alert System Functions
+        let alertCheckInterval;
 
-     <script>
-        // Add this to your existing script.js or include it in the HTML
         function showAlert(plate, timestamp) {
             document.getElementById('alertPlate').textContent = plate;
-            document.getElementById('alertTime').textContent = timestamp;
+            document.getElementById('alertTime').textContent = new Date(timestamp).toLocaleString();
             document.getElementById('overlay').classList.add('show');
             document.getElementById('alertPopup').classList.add('show');
         }
@@ -88,21 +128,29 @@
             document.getElementById('alertPopup').classList.remove('show');
         }
 
-        // Check for prolonged detections every 5 seconds
-        setInterval(() => {
+        function checkProlongedDetection() {
             fetch('/check_prolonged_detection')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    return response.json();
+                })
                 .then(data => {
                     if (data.alert) {
                         showAlert(data.plate, data.timestamp);
                     }
                 })
-                .catch(error => console.error('Error:', error));
-        }, 5000);
+                .catch(error => console.error('Error checking prolonged detection:', error));
+        }
 
+        // Initialize alert checking
+        document.addEventListener('DOMContentLoaded', () => {
+            alertCheckInterval = setInterval(checkProlongedDetection, 5000);
+        });
 
-
-        
+        // Cleanup
+        window.addEventListener('beforeunload', () => {
+            clearInterval(alertCheckInterval);
+        });
     </script>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>

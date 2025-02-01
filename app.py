@@ -5,731 +5,600 @@ import re
 import os
 import geocoder
 from geopy.geocoders import Nominatim
-import pycountry
-from flask import Flask, render_template, Response, send_from_directory, request, session, jsonify, abort, redirect, url_for
+from flask import Flask, render_template, Response, send_from_directory, request, jsonify, redirect, url_for
 from datetime import datetime
 import sqlite3
-from collections import Counter, defaultdict
-from time import time
+from collections import defaultdict
 import time
 import threading
 from werkzeug.utils import secure_filename
 import atexit
 import logging
-import warnings
-warnings.filterwarnings("ignore", category=SyntaxWarning)
-from dataclasses import dataclass
-from typing import Optional, Dict, List
-import logging
 from contextlib import contextmanager
+import imutils
+os.environ["OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS"] = "0"
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'
 
-# Plate Cascade Setup
-plate_cascade = cv2.CascadeClassifier("haarcascade_russian_plate_number.xml")
-if plate_cascade.empty():
-    print("Error loading cascade file.")
-
-# Configure camera
-ENABLE_CAMERA = os.getenv("ENABLE_CAMERA", "false").lower() == "true"
-
-
-
-# Directory setup
-output_folder = 'web_output/'
-originals_folder = os.path.join(output_folder, 'originals')
-blackwhite_folder = os.path.join(output_folder, 'blackwhite')
-os.makedirs(output_folder, exist_ok=True)
+# Add near top of app.py
+originals_folder = os.path.join('web_output', 'originals')
 os.makedirs(originals_folder, exist_ok=True)
-os.makedirs(blackwhite_folder, exist_ok=True)
-
-# Disable camera initialization on cloud environments like Koyeb
-camera = None
-
-# If running locally (development), allow camera access
-if os.environ.get("FLASK_ENV") != "production":
-    camera = cv2.VideoCapture(0)  # This will try to open the default camera
-    if not camera.isOpened():
-        print("Error: Could not open camera.")
-
-    
-camera_available = True
 
 
 
-detected_plates = []
-last_detection = None
-stats = {"total_detections": 100, "successful_detections": 90}
-camera_status = "offline" if not camera_available else "online"
+# Configuration
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+TESSERACT_CONFIG = r'--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+HAAR_CASCADE_PATH = cv2.data.haarcascades + 'haarcascade_russian_plate_number.xml'
 
-# And ensure to release the camera when stopping
-def stop_camera():
-    global camera
-    if camera:
-        camera.release()
-        camera = None
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory('static', filename)
 
-
-# Font settings
-font = cv2.FONT_HERSHEY_SIMPLEX
-font_scale = 0.6
-font_thickness = 2
-
-# Plate Detection Class
-@dataclass
-class PlateDetection:
-    plate_number: str
-    timestamp: datetime
-    country_code: str
-    location: Dict[str, str]
-    original_image_path: str
-    bw_image_path: str
+# Initialize plate cascade
+plate_cascade = cv2.CascadeClassifier(HAAR_CASCADE_PATH)
+if plate_cascade.empty():
+    raise SystemError("Failed to load cascade file. Check path: " + HAAR_CASCADE_PATH)
 
 
 
+# CameraHandler Class Fixes
 class CameraHandler:
     def __init__(self):
         self.camera = None
-        self.is_enabled = os.getenv("ENABLE_CAMERA", "false").lower() == "true"
-        self.camera_index = int(os.getenv("CAMERA_INDEX", "0"))
-        
-    def initialize(self) -> bool:
-        """Initialize the camera if enabled"""
-        if not self.is_enabled:
-            return False
-            
-        try:
-            self.camera = cv2.VideoCapture(self.camera_index)
-            if not self.camera.isOpened():
-                print("Warning: Could not open camera")
-                self.camera = None
-                return False
+        self.lock = threading.Lock()
+        self.frame_buffer = None
+        self.processing_frame = None
+        self.is_running = False
+        self.plate_tracking = defaultdict(lambda: {'first_seen': None, 'last_seen': None, 'alert_sent': False})  # Initialize plate_tracking
+
+    def initialize(self, camera_index=0):
+        with self.lock:
+            if self.camera is None:
+                self.camera = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
+                if not self.camera.isOpened():
+                    logger.error("Camera initialization failed")
+                    return False
+                
+                # Set explicit camera resolution
+                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                self.is_running = True
+                logger.info("Camera initialized at 1280x720")
+                return True
             return True
-        except Exception as e:
-            print(f"Error initializing camera: {e}")
-            self.camera = None
+
+    def get_frame(self):
+        with self.lock:
+            if self.camera and self.camera.isOpened():
+                ret, frame = self.camera.read()
+                if ret:
+                    self.processing_frame = frame
+                    return True
+                logger.error("Failed to capture frame")
             return False
-    
-    def get_frame(self) -> Optional[np.ndarray]:
-        """Get a frame from the camera if available"""
-        if not self.camera:
-            return None
-            
-        ret, frame = self.camera.read()
-        if not ret:
-            return None
-        return frame
-    
+
+    def update_frame_buffer(self, frame):
+        with self.lock:
+            if frame is not None:
+                # Convert BGR to RGB and encode
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                _, buffer = cv2.imencode('.jpg', frame_rgb)
+                self.frame_buffer = buffer.tobytes()
+
     def release(self):
-        """Release the camera resources"""
-        if self.camera:
-            self.camera.release()
-            self.camera = None
+        with self.lock:
+            if self.camera:
+                self.camera.release()
+                self.camera = None
+            self.is_running = False
 
-# Replace the existing camera initialization code with:
+# Global instances
 camera_handler = CameraHandler()
-
-# Country Code Mapping
-COUNTRY_CODES = {
-    'AL': 'Albania', 'KS': 'Kosovo', 'MK': 'North Macedonia', 'ME': 'Montenegro',
-    'RS': 'Serbia', 'GR': 'Greece', 'HR': 'Croatia', 'IT': 'Italy', 'AT': 'Austria', 'DE': 'Germany',
-}
-
-# Location Tracking
-geolocator = Nominatim(user_agent="plate_detector")
 current_location = {
-    'street': None,
-    'city': None,
-    'country': None,
-    'lat': None,
-    'lon': None,
-    'last_update': None
+    'street': 'Unknown', 'city': 'Unknown', 'country': 'Unknown',
+    'lat': 0.0, 'lon': 0.0, 'last_update': None
+}
+last_detection = {
+    'plate_number': None, 'timestamp': None, 'detection_time': None,
+    'country': None, 'street': None, 'city': None
 }
 
-# Database initialization
+# Database setup
+@contextmanager
 def get_db_connection():
     conn = sqlite3.connect('license_plates.db')
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 def init_db():
-    conn = get_db_connection()
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS plates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            plate_number TEXT NOT NULL,
-            country_code TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            original_image_path TEXT,
-            bw_image_path TEXT,
-            street TEXT,
-            city TEXT,
-            country TEXT,
-            latitude REAL,
-            longitude REAL
-        )
-    ''')
-    conn.close()
+    with get_db_connection() as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS plates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plate_number TEXT NOT NULL,
+                country_code TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                original_image_path TEXT,
+                street TEXT,
+                city TEXT,
+                country TEXT
+            )
+        ''')
 
-# Global variables for tracking
-detected_plates = []
-plate_tracking = defaultdict(lambda: {'first_seen': None, 'last_seen': None, 'alert_shown': False})
-last_detection = {
-    'plate_number': None,
-    'timestamp': None,
-    'detection_time': None,
-    'country': None,
-    'street': None,
-    'city': None
-}
-
-def update_location():
-    """Background thread to update GPS location"""
-    global current_location
-    while True:
-        try:
-            g = geocoder.ip('me')
-            if g.ok:
-                lat, lon = g.latlng
-                location = geolocator.reverse(f"{lat}, {lon}")
-                address = location.raw['address']
-                current_location.update({
-                    'street': address.get('road', 'Unknown Street'),
-                    'city': address.get('city', address.get('town', 'Unknown City')),
-                    'country': address.get('country', 'Unknown Country'),
-                    'lat': lat,
-                    'lon': lon,
-                    'last_update': datetime.now()
-                })
-        except Exception as e:
-            print(f"Error updating location: {e}")
-        time.sleep(1)
-
-def detect_country_code(plate_number):
-    """Detect country code from license plate format"""
-    patterns = {
-        r'^[A-Z]{2}\d{3,5}[A-Z]{2}$': 'AL',  # Albania
-        r'^[A-Z]{2}\d{3,4}[A-Z]{2}$': 'RKS',  # Kosovo
-        r'^\d{2}-[A-Z]{1,2}-\d{3}$': 'MK',   # North Macedonia
-        r'^[A-Z]{2}[A-Z0-9]{4,5}$': 'ME',    # Montenegro
-    }
+# Video Processing Thread Fix
+def process_video():
+    logger.info("Starting video processing thread")
+    time.sleep(2)  # Camera warmup
     
-    for pattern, country_code in patterns.items():
-        if re.match(pattern, plate_number):
-            return country_code
-    return 'Unknown'
-
-def check_plate_duration(plate_number, current_time):
-    """Check if a plate has been present for more than 5 minutes"""
-    if plate_number not in plate_tracking:
-        plate_tracking[plate_number] = {
-            'first_seen': current_time,
-            'last_seen': current_time,
-            'alert_shown': False
-        }
-    else:
-        plate_tracking[plate_number]['last_seen'] = current_time
+    while camera_handler.is_running:
+        if camera_handler.get_frame():
+            frame = camera_handler.processing_frame
+            if frame is None:
+                continue
+            
+            # Maintain original aspect ratio
+            debug_frame = imutils.resize(frame, width=800)
+            
+            # Add status text to actual camera frame
+            cv2.putText(debug_frame, "STATUS: CAMERA ACTIVE", 
+                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 
+                       0.7, (0, 255, 0), 2)
+            
+            camera_handler.update_frame_buffer(debug_frame)
         
-    duration = current_time - plate_tracking[plate_number]['first_seen']
-    should_alert = duration >= 10 and not plate_tracking[plate_number]['alert_shown']
-    
-    if should_alert:
-        plate_tracking[plate_number]['alert_shown'] = True
-        
-    return should_alert
+        time.sleep(0.033)
 
 def process_video():
+    logger.info("Starting video processing thread")
+    time.sleep(2)  # Camera warmup
     
-    camera = cv2.VideoCapture(0)
-    if not camera.isOpened():
-        print("Camera is not accessible.")
-        camera = None
-        return
-    
-    global detected_plates, last_detection
-    
-    if not camera_handler.initialize():
-        print("Camera not available for video processing")
-        return
-        
-    while True:
-        frame = camera_handler.get_frame()
-        if frame is None:
-            continue
+    while camera_handler.is_running:
+        if camera_handler.get_frame():
+            frame = camera_handler.processing_frame
+            if frame is None:
+                continue
             
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        plates = plate_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+            # Maintain original aspect ratio
+            debug_frame = imutils.resize(frame, width=800)
+            
+            # Add status text to actual camera frame
+            cv2.putText(debug_frame, "STATUS: CAMERA ACTIVE", 
+                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 
+                       0.7, (0, 255, 0), 2)
+            
+            camera_handler.update_frame_buffer(debug_frame)
         
-        plate_found = False
+        time.sleep(0.033)
+
+def generate_frames():
+    while True:
+        if camera_handler.frame_buffer:
+            yield (b'--frame\r\n'
+                  b'Content-Type: image/jpeg\r\n\r\n' + 
+                  camera_handler.frame_buffer + b'\r\n')
+        else:
+            # Fallback blank frame with status
+            blank = np.zeros((600, 800, 3), dtype=np.uint8)
+            cv2.putText(blank, "STATUS: NO FEED", (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            _, buffer = cv2.imencode('.jpg', blank)
+            yield (b'--frame\r\n'
+                  b'Content-Type: image/jpeg\r\n\r\n' + 
+                  buffer.tobytes() + b'\r\n')
+        time.sleep(0.033)
+
+def handle_plate_detection(plate_number, frame, x, y, current_time):
+    country_code = detect_country_code(plate_number)
+    country_name = COUNTRY_CODES.get(country_code, 'Unknown')
+    
+    # Update tracking
+    with camera_handler.lock:
+        if plate_number not in camera_handler.plate_tracking:
+            camera_handler.plate_tracking[plate_number] = {
+                'first_seen': current_time,
+                'last_seen': current_time,
+                'alert_sent': False
+            }
+        else:
+            camera_handler.plate_tracking[plate_number]['last_seen'] = current_time
+
+    # Update display and database
+    if last_detection.get('plate_number') != plate_number:
+        timestamp_str = current_time.strftime("%Y-%m-%d_%H-%M-%S")
+        img_path = os.path.join('web_output', f'original_{timestamp_str}_{plate_number}.png')
         
-        for (x, y, w, h) in plates:
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-            plate_roi = gray[y:y+h, x:x+w]
-            img_thresh = cv2.adaptiveThreshold(
-                plate_roi, 255.0, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY_INV, 19, 9
-            )
-            text = pytesseract.image_to_string(img_thresh)
+        try:
+            cv2.imwrite(img_path, frame)
+            with get_db_connection() as conn:
+                conn.execute('''
+                    INSERT INTO plates 
+                    (plate_number, country_code, original_image_path, street, city, country)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (plate_number, country_code, img_path,
+                      current_location['street'], current_location['city'], country_name))
+                conn.commit()
+                
+            last_detection.update({
+                'plate_number': plate_number,
+                'timestamp': current_time,
+                'detection_time': timestamp_str,
+                'country': country_name,
+                'street': current_location['street'],
+                'city': current_location['city']
+            })
+            
+        except Exception as e:
+            logger.error(f"Detection handling error: {str(e)}")
 
-            if text:
-                clean_text = re.sub(r'\W+', '', text).upper()
-                if len(clean_text) >= 4:
-                    plate_found = True
-                    country_code = detect_country_code(clean_text)
-                    country_name = COUNTRY_CODES.get(country_code, 'Unknown')
-                    
-                    if last_detection['plate_number'] != clean_text:
-                        current_time = datetime.now()
-                        
-                        # Update last detection info
-                        last_detection.update({
-                            'plate_number': clean_text,
-                            'timestamp': current_time,
-                            'detection_time': current_time.strftime("%Y-%m-%d %H:%M:%S"),
-                            'country': country_name,
-                            'street': current_location['street'],
-                            'city': current_location['city']
-                        })
+    # Draw detection info
+    cv2.putText(frame, f"{plate_number} ({country_name})", 
+               (x, y-25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255), 2)
+    cv2.putText(frame, f"{current_location['street']}, {current_location['city']}",
+               (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
 
-                        # Save images
-                        current_datetime = current_time.strftime('%Y%m%d%H%M%S')
-                        original_image_filename = f'original_{current_datetime}_{clean_text}.png'
-                        bw_image_filename = f'bw_{current_datetime}_{clean_text}.png'
-                        
-                        original_image_path = os.path.join(originals_folder, original_image_filename)
-                        bw_image_path = os.path.join(blackwhite_folder, bw_image_filename)
-                        
-                        cv2.imwrite(original_image_path, frame)
-                        cv2.imwrite(bw_image_path, img_thresh)
+def detect_country_code(plate_number):
+    patterns = {
+        r'^[A-Z]{2}\d{3,5}[A-Z]{2}$': 'AL',
+        r'^[A-Z]{2}\d{3,4}[A-Z]{2}$': 'RKS',
+        r'^\d{2}-[A-Z]{1,2}-\d{3}$': 'MK',
+        r'^[A-Z]{2}[A-Z0-9]{4,5}$': 'ME',
+    }
+    for pattern, code in patterns.items():
+        if re.match(pattern, plate_number):
+            return code
+    return 'Unknown'
 
-                        # Save to database
-                        conn = get_db_connection()
-                        conn.execute(''' 
-                            INSERT INTO plates 
-                            (plate_number, country_code, original_image_path, bw_image_path, 
-                             street, city, country, latitude, longitude) 
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', (clean_text, country_code, original_image_filename, bw_image_filename,
-                              current_location['street'], current_location['city'], country_name,
-                              current_location['lat'], current_location['lon']))
-                        conn.commit()
-                        conn.close()
+COUNTRY_CODES = {
+    'AL': 'Albania', 'RKS': 'Kosovo', 'MK': 'North Macedonia',
+    'ME': 'Montenegro', 'RS': 'Serbia', 'GR': 'Greece'
+}
 
-                    # Display info on frame
-                    display_text = f"{clean_text} ({country_name})"
-                    location_text = f"{current_location['street']}, {current_location['city']}"
-                    cv2.putText(frame, display_text, (x, y - 20), font, font_scale, (0, 0, 255), font_thickness)
-                    cv2.putText(frame, location_text, (x, y - 5), font, font_scale * 0.8, (0, 255, 0), font_thickness)
-
-        if not plate_found:
-            last_detection['plate_number'] = None
-            last_detection['timestamp'] = None
-            last_detection['detection_time'] = None
-            last_detection['country'] = None
-            last_detection['street'] = None
-            last_detection['city'] = None
-
-        ret, jpeg_frame = cv2.imencode('.png', frame)
-        frame_bytes = jpeg_frame.tobytes()
-        yield (b'--frame\r\n'
-               b'Content-Type: image/png\r\n\r\n' + frame_bytes + b'\r\n')
-
-# [Previous imports and setup code remains the same until the Flask routes section]
-
-# Flask routes
+# Web routes
 @app.route('/')
 def index():
-    return render_template('index.html')
+    stats = {
+        'total_detections': 0,
+        'unique_plates': 0,
+        'top_plates': [],
+        'hour_distribution': []
+    }
+    
+    try:
+        with get_db_connection() as conn:
+            # Total detections
+            stats['total_detections'] = conn.execute('SELECT COUNT(*) FROM plates').fetchone()[0]
+            
+            # Unique plates
+            stats['unique_plates'] = conn.execute('SELECT COUNT(DISTINCT plate_number) FROM plates').fetchone()[0]
+            
+            # Top 5 plates
+            stats['top_plates'] = conn.execute('''
+                SELECT plate_number, COUNT(*) as count 
+                FROM plates 
+                GROUP BY plate_number 
+                ORDER BY count DESC 
+                LIMIT 5
+            ''').fetchall()
+            
+            # Hour distribution
+            stats['hour_distribution'] = conn.execute('''
+                SELECT strftime('%H', timestamp) as hour, COUNT(*) as count
+                FROM plates
+                GROUP BY hour
+                ORDER BY hour
+            ''').fetchall()
+            
+    except Exception as e:
+        logger.error(f"Stats error: {str(e)}")
+    
+    return render_template('index.html', stats=stats)
 
-def create_placeholder_frame():
-    """Create a placeholder frame when camera is not available"""
-    # Create a black frame with text
-    frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    text = "Camera Not Available"
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 1
-    thickness = 2
-    color = (255, 255, 255)
-    
-    # Get text size to center it
-    text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
-    text_x = (frame.shape[1] - text_size[0]) // 2
-    text_y = (frame.shape[0] + text_size[1]) // 2
-    
-    # Put text on frame
-    cv2.putText(frame, text, (text_x, text_y), font, font_scale, color, thickness)
-    return frame
 
 @app.route('/video_feed')
 def video_feed():
-    def generate_frames():
-        while True:
-            if not camera_handler.initialize():
-                # Use placeholder frame when camera is not available
-                frame = create_placeholder_frame()
-            else:
-                frame = camera_handler.get_frame()
-                if frame is None:
-                    frame = create_placeholder_frame()
-                else:
-                    # Add any processing you want to do on the frame here
-                    pass
-            
-            # Convert frame to JPEG
-            ret, buffer = cv2.imencode('.jpg', frame)
-            if not ret:
-                continue
-                
-            # Yield the frame in the correct format for streaming
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-            
-    return Response(generate_frames(),
+    return Response(generate_frames(), 
                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
-logging.basicConfig(level=logging.DEBUG)
-
-@app.before_request
-def log_request_info():
-    logger.debug("Request: %s %s", request.method, request.url)
-
-
-@app.route('/images')
-def images():
-    conn = get_db_connection()
-    detected_plates = conn.execute('SELECT * FROM plates ORDER BY timestamp DESC').fetchall()
-    conn.close()
-    return render_template('images.html', plates=detected_plates)
-
-@app.route('/search', methods=['GET', 'POST'])
-def search_images():
-    if request.method == 'POST':
-        search_query = request.form.get('search', '')
-        search_type = request.form.get('search_type', 'plate')
+def generate_frames():
+    while camera_handler.is_running:
+        try:
+            if camera_handler.frame_buffer:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + 
+                       camera_handler.frame_buffer + b'\r\n')
+            else:
+                logger.warning("No frame buffer available")
+            time.sleep(0.033)  # ~30 FPS
+        except Exception as e:
+            logger.error(f"Frame generation error: {str(e)}")
+            break
         
-        conn = get_db_connection()
-        
-        if search_type == 'plate':
-            plates = conn.execute(''' 
-                SELECT * FROM plates 
-                WHERE plate_number LIKE ? 
-                ORDER BY timestamp DESC
-            ''', (f'%{search_query}%',)).fetchall()
-        elif search_type == 'time':
-            plates = conn.execute(''' 
-                SELECT * FROM plates 
-                WHERE timestamp LIKE ? OR strftime('%H:%M', timestamp) LIKE ?
-                ORDER BY timestamp DESC
-            ''', (f'%{search_query}%', f'%{search_query}%',)).fetchall()
-        elif search_type == 'location':
-            plates = conn.execute(''' 
-                SELECT * FROM plates 
-                WHERE street LIKE ? OR city LIKE ? OR country LIKE ?
-                ORDER BY timestamp DESC
-            ''', (f'%{search_query}%', f'%{search_query}%', f'%{search_query}%')).fetchall()
-        else:
-            plates = []
-        
-        conn.close()
-        
-        return render_template('images.html', plates=plates, search_query=search_query, search_type=search_type)
-    else:
-        return redirect(url_for('images'))
+@app.route('/uploads/<folder>/<filename>')
+def uploaded_file(folder, filename):
+    try:
+        return send_from_directory(os.path.join(app.root_path, 'web_output', folder), filename)
+    except FileNotFoundError:
+        abort(404)
 
-@app.route('/delete_plate/<int:plate_id>', methods=['POST'])
-def delete_plate(plate_id):
-    conn = get_db_connection()
-    
-    # Get the plate record to retrieve image paths
-    plate = conn.execute('SELECT * FROM plates WHERE id = ?', (plate_id,)).fetchone()
-    
-    if plate:
-        # Delete images from the filesystem
-        original_image_path = os.path.join(originals_folder, plate['original_image_path'])
-        bw_image_path = os.path.join(blackwhite_folder, plate['bw_image_path'])
-        
-        if os.path.exists(original_image_path):
-            os.remove(original_image_path)
-        if os.path.exists(bw_image_path):
-            os.remove(bw_image_path)
-
-        # Delete the record from the database
-        conn.execute('DELETE FROM plates WHERE id = ?', (plate_id,))
-        conn.commit()
-    
-    conn.close()
-    
-    return redirect(url_for('images'))
-
+# Update the upload_plate route
 @app.route('/upload_plate', methods=['GET', 'POST'])
 def upload_plate():
     if request.method == 'POST':
-        plate_number = request.form.get('plate_number')
-        location = request.form.get('location')
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        
-        bw_image = request.files.get('bw_image')
-        original_image = request.files.get('original_image')
-        
-        if bw_image and original_image and plate_number and location:
-            bw_filename = secure_filename(f"bw_{timestamp}_{plate_number}.png")
+        try:
+            plate_number = request.form.get('plate_number')
+            location = request.form.get('location')
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            
+            # Validate required fields
+            if not plate_number or not location:
+                raise ValueError("All fields are required")
+                
+            # Handle file uploads
+            original_image = request.files.get('original_image')
+            if not original_image:
+                raise ValueError("Original image is required")
+                
+            # Save files (fix path handling)
             original_filename = secure_filename(f"original_{timestamp}_{plate_number}.png")
-            
-            bw_image.save(os.path.join(blackwhite_folder, bw_filename))
             original_image.save(os.path.join(originals_folder, original_filename))
-            
-            conn = get_db_connection()
-            conn.execute('''
-                INSERT INTO plates (plate_number, timestamp, original_image_path, bw_image_path, street, city)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (plate_number, timestamp, original_filename, bw_filename, location, current_location['city']))
-            conn.commit()
-            conn.close()
+
+
+            # Database operation
+            with get_db_connection() as conn:
+                conn.execute('''
+                    INSERT INTO plates 
+                    (plate_number, timestamp, original_image_path, street, city)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (plate_number, timestamp, original_filename, 
+                      location, current_location.get('city', 'Unknown')))
+                conn.commit()
 
             return redirect(url_for('images'))
+            
+        except Exception as e:
+            logger.error(f"Upload error: {str(e)}")
+            return render_template('images.html', error=str(e))
+    
+    # GET request - show upload form
+    with get_db_connection() as conn:
+        plates = conn.execute('SELECT * FROM plates ORDER BY timestamp DESC').fetchall()
+    return render_template('images.html', plates=plates)
+
+@app.route('/delete_plate/<int:id>', methods=['POST'])
+def delete_plate(id):
+    try:
+        with get_db_connection() as conn:
+            # Fetch the plate record to get the image path
+            plate = conn.execute('SELECT * FROM plates WHERE id = ?', (id,)).fetchone()
+            if plate:
+                # Delete the associated image file
+                if plate['original_image_path']:
+                    image_path = os.path.join('web_output', 'originals', plate['original_image_path'])
+                    if os.path.exists(image_path):
+                        os.remove(image_path)
+                
+                # Delete the database record
+                conn.execute('DELETE FROM plates WHERE id = ?', (id,))
+                conn.commit()
+                return jsonify({'status': 'success'})
+            else:
+                return jsonify({'status': 'error', 'message': 'Plate not found'}), 404
+    except Exception as e:
+        logger.error(f"Delete plate error: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/images')
+def images():
+    try:
+        with get_db_connection() as conn:
+            plates = conn.execute('SELECT * FROM plates ORDER BY timestamp DESC').fetchall()
+        return render_template('images.html', plates=plates)
+    except Exception as e:
+        logger.error(f"Images error: {str(e)}")
+        return render_template('images.html', plates=[])
+
+def handle_plate_detection(plate_number, frame, x, y, current_time):
+    country_code = detect_country_code(plate_number)
+    country_name = COUNTRY_CODES.get(country_code, 'Unknown')
+    
+    # Update tracking
+    with camera_handler.lock:  # Use the lock to ensure thread safety
+        if plate_number not in camera_handler.plate_tracking:
+            camera_handler.plate_tracking[plate_number] = {
+                'first_seen': current_time,
+                'last_seen': current_time,
+                'alert_sent': False
+            }
         else:
-            return render_template('images.html', error="All fields are required."), 400
-    else:
-        return render_template('images.html')
-    
-@app.route('/get_last_detected_plate', methods=['GET'])
-def get_last_detected_plate():
-    if last_detection['plate_number'] is None:
-        return jsonify({
-            "plate": None,
-            "timestamp": None,
-            "detection_time": None,
-            "country": None,
-            "street": None,
-            "city": None
-        })
-    
-    return jsonify({
-        "plate": last_detection['plate_number'],
-        "detection_time": last_detection['detection_time'],
-        "country": last_detection['country'],
-        "street": last_detection['street'],
-        "city": last_detection['city']
-    })
+            camera_handler.plate_tracking[plate_number]['last_seen'] = current_time
 
+    # Update display and database
+    if last_detection.get('plate_number') != plate_number:
+        timestamp_str = current_time.strftime("%Y-%m-%d_%H-%M-%S")
+        img_path = os.path.join('web_output', f'original_{timestamp_str}_{plate_number}.png')
+        
+        try:
+            cv2.imwrite(img_path, frame)
+            with get_db_connection() as conn:
+                conn.execute('''
+                    INSERT INTO plates 
+                    (plate_number, country_code, original_image_path, street, city, country)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (plate_number, country_code, img_path,
+                      current_location['street'], current_location['city'], country_name))
+                conn.commit()
+                
+            last_detection.update({
+                'plate_number': plate_number,
+                'timestamp': current_time,
+                'detection_time': timestamp_str,
+                'country': country_name,
+                'street': current_location['street'],
+                'city': current_location['city']
+            })
+            
+        except Exception as e:
+            logger.error(f"Detection handling error: {str(e)}")
 
-
+    # Draw detection info
+    cv2.putText(frame, f"{plate_number} ({country_name})", 
+               (x, y-25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255), 2)
+    cv2.putText(frame, f"{current_location['street']}, {current_location['city']}",
+               (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
 
 @app.route('/check_prolonged_detection')
 def check_prolonged_detection():
-    if not detected_plates:
-        return jsonify({'alert': False, 'plate': None})
-    
-    latest_plate = detected_plates[-1]
-    if latest_plate.get('duration_alert', False):
+    try:
+        current_time = datetime.now()
+        alerts = []
+        
+        with camera_handler.lock:  # Use the lock to ensure thread safety
+            # Remove old entries older than 1 hour
+            to_delete = [p for p, data in camera_handler.plate_tracking.items() 
+                        if (current_time - data['last_seen']).total_seconds() > 3600]
+            
+            for plate in to_delete:
+                del camera_handler.plate_tracking[plate]
+            
+            # Check for prolonged presence
+            for plate, data in camera_handler.plate_tracking.items():
+                if data['alert_sent']:
+                    continue
+                
+                duration = (current_time - data['first_seen']).total_seconds()
+                if duration > 300:  # 5 minutes
+                    alerts.append({
+                        'plate': plate,
+                        'first_seen': data['first_seen'].isoformat(),
+                        'duration': duration
+                    })
+                    data['alert_sent'] = True
+
         return jsonify({
-            'alert': True,
-            'plate': latest_plate['plate_number'],
-            'timestamp': latest_plate['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+            'alert': bool(alerts),
+            'plates': alerts,
+            'timestamp': current_time.isoformat()
         })
     
-    return jsonify({'alert': False, 'plate': None})
-
-@app.route('/uploads/<folder>/<filename>')
-def uploaded_file(folder, filename):
-    return send_from_directory(os.path.join(app.root_path, 'web_output', folder), filename)
-
-# Add a new detection for demonstration
-@app.route('/api/add_detection', methods=['POST'])
-def add_detection():
-    plate_number = request.json.get('plate_number')
-    image_path = request.json.get('image_path', '')
-    if plate_number:
-        detection = {
-            'id': len(detected_plates) + 1,
-            'plate_number': plate_number,
-            'timestamp': datetime.now().isoformat(),
-            'image_path': image_path
-        }
-        detected_plates.append(detection)
-        return jsonify(status="success", plate=detection), 201
-    return jsonify(status="error", message="Invalid plate number"), 400
-
-@app.route('/api/detected_plates', methods=['GET'])
-def get_detected_plates():
-    return jsonify(detected_plates)
-
-# Update the camera handler to include status checking
-@app.route('/get_camera_status')
-def camera_status():
-    try:
-        # Check if camera is initialized
-        status = {
-            "is_enabled": camera_handler.is_enabled,
-            "is_initialized": camera_handler.camera is not None,
-            "error": None
-        }
-
-        # Check camera status
-        if camera_handler.initialize():
-            frame = camera_handler.get_frame()
-            if frame is not None:
-                status["status"] = "working"
-            else:
-                status["status"] = "no_frame"
-                status["error"] = "Cannot capture frame"
-        else:
-            status["status"] = "not_available"
-            status["error"] = "Camera initialization failed"
-
-        return jsonify(status)
     except Exception as e:
-        app.logger.error(f"Error in /get_camera_status: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-
-
+        logger.error(f"Prolonged detection error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/start_camera', methods=['POST'])
 def start_camera():
-    global camera
-    if camera is None:
-        camera = cv2.VideoCapture(1)  # Open the default camera
-        if not camera.isOpened():
-            return jsonify({'status': 'error', 'message': 'Failed to open camera'})
-    return jsonify({'status': 'success'})
+    if camera_handler.initialize(camera_index=0):
+        camera_handler.is_running = True
+        return jsonify({'status': 'success'})
+    return jsonify({'status': 'error', 'message': 'Camera initialization failed'}), 500
 
 @app.route('/stop_camera', methods=['POST'])
 def stop_camera():
-    global camera
-    if camera and camera.isOpened():
-        camera.release()  # Stop the camera
-        camera = None  # Clear the camera object
+    camera_handler.release()
     return jsonify({'status': 'success'})
-
-@app.route('/get_stats', methods=['GET'])
-def get_stats():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    total_detections = cur.execute('SELECT COUNT(*) FROM plates').fetchone()[0]
-    unique_plates = cur.execute('SELECT COUNT(DISTINCT plate_number) FROM plates').fetchone()[0]
-    
-    top_plates = cur.execute('''
-        SELECT plate_number, COUNT(*) as count, MAX(country) as country
-        FROM plates 
-        GROUP BY plate_number 
-        ORDER BY count DESC 
-        LIMIT 5
-    ''').fetchall()
-    
-    hour_distribution = cur.execute('''
-        SELECT strftime('%H', timestamp) as hour, COUNT(*) as count 
-        FROM plates 
-        GROUP BY hour 
-        ORDER BY hour
-    ''').fetchall()
-    
-    locations = cur.execute('''
-        SELECT city, COUNT(*) as count
-        FROM plates
-        GROUP BY city
-        ORDER BY count DESC
-        LIMIT 5
-    ''').fetchall()
-    
-    conn.close()
-    
-    return jsonify({
-        "total_detections": total_detections,
-        "unique_plates": unique_plates,
-        "top_plates": [dict(p) for p in top_plates],
-        "hour_distribution": [dict(h) for h in hour_distribution],
-        "top_locations": [dict(l) for l in locations]
-    })
-    
-    # Conditional camera access based on availability
-if camera_available:
-    def open_camera():
-        try:
-            # Placeholder for camera access logic
-            pass
-        except Exception as e:
-            logging.error(f"Camera error: {str(e)}")
-else:
-    def open_camera():
-        logging.warning("Camera is not available in the current environment.")
-        return None
-
-class AddressProcessor:
-    def __init__(self, address):
-        self.address = address  # Store the address as an instance variable
-
-    def process_address(self):
-        match = re.search(r'^\d+', self.address, re.UNICODE)
-        if match:
-            return match.group(0)
-        return None
-# Error handling for unimplemented routes
-@app.errorhandler(404)
-def not_found(e):
-    return jsonify(error=str(e)), 404
 
 @atexit.register
 def cleanup():
     camera_handler.release()
+    
+    
+# Add this route for statistics
+@app.route('/get_stats')
+def get_stats():
+    try:
+        with get_db_connection() as conn:
+            stats = {
+                "total_detections": conn.execute('SELECT COUNT(*) FROM plates').fetchone()[0],
+                "unique_plates": conn.execute('SELECT COUNT(DISTINCT plate_number) FROM plates').fetchone()[0],
+                "top_plates": [],
+                "hour_distribution": []
+            }
 
+            # Get top 5 plates
+            top_plates = conn.execute('''
+                SELECT plate_number, COUNT(*) as count 
+                FROM plates 
+                GROUP BY plate_number 
+                ORDER BY count DESC 
+                LIMIT 5
+            ''').fetchall()
+            
+            stats['top_plates'] = [dict(row) for row in top_plates]
 
-def check_environment():
-    """Check and log environment status at startup"""
-    logger = logging.getLogger(__name__)
-    
-    # Check camera settings
-    camera_enabled = os.getenv("ENABLE_CAMERA", "false").lower() == "true"
-    camera_index = os.getenv("CAMERA_INDEX", "0")
-    
-    logger.info(f"Camera enabled: {camera_enabled}")
-    logger.info(f"Camera index: {camera_index}")
-    
-    # Check OpenCV installation
-    logger.info(f"OpenCV version: {cv2.__version__}")
-    
-    # Check if running in production
-    is_production = os.getenv("FLASK_ENV") == "production"
-    logger.info(f"Running in production: {is_production}")
-    
-    return {
-        "camera_enabled": camera_enabled,
-        "camera_index": camera_index,
-        "is_production": is_production
-    }
+            # Get hour distribution
+            hour_dist = conn.execute('''
+                SELECT strftime('%H', timestamp) as hour, COUNT(*) as count
+                FROM plates
+                GROUP BY hour
+                ORDER BY hour
+            ''').fetchall()
+            
+            stats['hour_distribution'] = [dict(row) for row in hour_dist]
 
+        return jsonify(stats)
+    
+    except Exception as e:
+        logger.error(f"Stats error: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
+# Fix the search route
+@app.route('/search', methods=['GET', 'POST'])
+def search_images():
+    plates = []
+    search_query = request.form.get('search', '')
+    search_type = request.form.get('search_type', 'plate')
+
+    try:
+        with get_db_connection() as conn:
+            if search_type == 'plate':
+                plates = conn.execute('''
+                    SELECT * FROM plates 
+                    WHERE plate_number LIKE ? 
+                    ORDER BY timestamp DESC
+                ''', (f'%{search_query}%',)).fetchall()
+            
+            elif search_type == 'time':
+                plates = conn.execute('''
+                    SELECT * FROM plates 
+                    WHERE strftime('%H:%M', timestamp) LIKE ?
+                    ORDER BY timestamp DESC
+                ''', (f'%{search_query}%',)).fetchall()
+            
+            elif search_type == 'location':
+                plates = conn.execute('''
+                    SELECT * FROM plates 
+                    WHERE street LIKE ? OR city LIKE ? OR country LIKE ?
+                    ORDER BY timestamp DESC
+                ''', (f'%{search_query}%', f'%{search_query}%', f'%{search_query}%')).fetchall()
+
+    except Exception as e:
+        logger.error(f"Search error: {str(e)}")
+    
+    return render_template('images.html', 
+                         plates=plates,
+                         search_query=search_query,
+                         search_type=search_type)
 
 if __name__ == '__main__':
     init_db()
+    os.makedirs('web_output/originals', exist_ok=True)
     
-    # Initialize logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    # Check environment
-    env_status = check_environment()
-    
-    # Only start video processing if camera is enabled
-    if os.getenv("ENABLE_CAMERA", "false").lower() == "true":
-        video_thread = threading.Thread(target=process_video)
-        video_thread.daemon = True
+    # Start background services
+    if camera_handler.initialize(camera_index=0):
+        video_thread = threading.Thread(target=process_video, daemon=True)
         video_thread.start()
+        logger.info("Camera processing started")
+    else:
+        logger.error("Failed to initialize camera")
     
-    # Start location tracking in background
-    location_thread = threading.Thread(target=update_location)
-    location_thread.daemon = True
-    location_thread.start()
-    
-    # Start the app
-    port = int(os.getenv("PORT", 8000))
-    app.run(host='0.0.0.0', port=port)
+    # Start Flask app
+    app.run(host='0.0.0.0', port=5000, debug=True)

@@ -1,278 +1,313 @@
 document.addEventListener('DOMContentLoaded', function() {
     const startBtn = document.getElementById('start-btn');
-    // Initialize last detection from localStorage if available
     let lastDetectedPlate = localStorage.getItem('lastDetectedPlate');
     let lastDetectionTime = localStorage.getItem('lastDetectionTime');
     let isScanning = true;
     
-    // Initialize with stats fetch
-    fetchStats();
-    fetchDetectedPlates(); // Initial fetch of detected plates
+    // Initialize intervals
+    let statsInterval, platesInterval, plateInfoInterval;
     
-    setInterval(fetchStats, 5000);
-    setInterval(fetchDetectedPlates, 5000); // Poll for new plates every 5 seconds
-    
-    // Update initial button state
-    startBtn.textContent = 'Stop Camera';
-    
-    // Image handling functions
-    function openFullScreen(imageElement) {
-        var modal = document.getElementById("fullscreen-modal");
-        var fullscreenImg = document.getElementById("fullscreen-img");
+    // Initial data fetch
+    try {
+        fetchStats();
+        fetchDetectedPlates();
+        updatePlateInfo();
         
-        fullscreenImg.src = imageElement.src;
-        modal.style.display = "flex";
+        statsInterval = setInterval(fetchStats, 5000);
+        platesInterval = setInterval(fetchDetectedPlates, 5000);
+        plateInfoInterval = setInterval(updatePlateInfo, 1000);
+    } catch (error) {
+        console.error('Initialization error:', error);
     }
-    
+
+    if (startBtn) {
+        startBtn.textContent = 'Stop Camera';
+        startBtn.addEventListener('click', function() {
+            if (!isScanning) startCamera();
+            else stopCamera();
+        });
+    }
+
+    // Image handling
+    function openFullScreen(img) {
+        try {
+            const modal = document.getElementById("fullscreen-modal");
+            const fullscreenImg = document.getElementById("fullscreen-img");
+            if (modal && fullscreenImg) {
+                fullscreenImg.src = img.src;
+                modal.style.display = "flex";
+            }
+        } catch (error) {
+            console.error('Fullscreen error:', error);
+        }
+    }
+
     function closeFullScreen() {
-        var modal = document.getElementById("fullscreen-modal");
-        modal.style.display = "none";
+        try {
+            const modal = document.getElementById("fullscreen-modal");
+            if (modal) modal.style.display = "none";
+        } catch (error) {
+            console.error('Close fullscreen error:', error);
+        }
     }
-    
-    // Confirmation modal functions
+
+    // Confirmation modal
     function openModal(actionUrl) {
-        const modal = document.getElementById("confirmation-modal");
-        const deleteForm = document.getElementById("delete-form");
-        deleteForm.action = actionUrl;
-        modal.style.display = "block";
+        try {
+            const modal = document.getElementById("confirmation-modal");
+            const deleteForm = document.getElementById("delete-form");
+            if (modal && deleteForm) {
+                deleteForm.action = actionUrl;
+                modal.style.display = "block";
+            }
+        } catch (error) {
+            console.error('Modal open error:', error);
+        }
     }
-    
+
     function closeModal() {
-        const modal = document.getElementById("confirmation-modal");
-        modal.style.display = "none";
-    }
-    
-    // Close modal on outside click
-    window.onclick = function(event) {
-        const modal = document.getElementById("confirmation-modal");
-        const fullscreenModal = document.getElementById("fullscreen-modal");
-        if (event.target == modal) {
-            modal.style.display = "none";
-        }
-        if (event.target == fullscreenModal) {
-            fullscreenModal.style.display = "none";
+        try {
+            const modal = document.getElementById("confirmation-modal");
+            if (modal) modal.style.display = "none";
+        } catch (error) {
+            console.error('Modal close error:', error);
         }
     }
-    
-    // Fetch and display detected plates
-    function fetchDetectedPlates() {
-        fetch('/api/detected_plates') // Updated endpoint
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                const platesContainer = document.getElementById('platesContainer');
-                if (!platesContainer) {
-                    console.warn('Plates container not found');
-                    return;
-                }
-                
-                platesContainer.innerHTML = ''; // Clear current plates
-                
-                data.forEach(plate => {
-                    const plateDiv = document.createElement('div');
-                    plateDiv.className = 'plate-entry';
-                    
-                    // Create plate info section
-                    const plateInfo = document.createElement('div');
-                    plateInfo.className = 'plate-info';
-                    plateInfo.innerHTML = `
-                        <h3>Targa: ${plate.plate_number}</h3>
-                        <p>Koha: ${new Date(plate.timestamp).toLocaleString()}</p>
-                    `;
-                    
-                    // Create image if available
-                    if (plate.image_path) {
-                        const img = document.createElement('img');
-                        img.src = plate.image_path;
-                        img.alt = `Plate ${plate.plate_number}`;
-                        img.className = 'plate-image';
-                        img.onclick = () => openFullScreen(img);
-                        plateDiv.appendChild(img);
-                    }
-                    
-                    // Create delete button if needed
-                    const deleteBtn = document.createElement('button');
-                    deleteBtn.className = 'delete-btn';
-                    deleteBtn.innerHTML = 'Fshi';
-                    deleteBtn.onclick = () => openModal(`/delete_plate/${plate.id}`);
-                    
-                    plateDiv.appendChild(plateInfo);
-                    plateDiv.appendChild(deleteBtn);
-                    platesContainer.appendChild(plateDiv);
-                });
-            })
-            .catch(err => {
-                console.error('Error fetching plates:', err);
-            });
-    }
-    
-    // Immediately show the last detected plate if we have it in localStorage
-    if (lastDetectedPlate && lastDetectionTime) {
-        const plateInfoDiv = document.getElementById('plate-info');
-        const notDetectedText = plateInfoDiv.querySelector('.not-detected');
-        const plateNumberText = plateInfoDiv.querySelector('.plate-number');
-        const timeStampText = plateInfoDiv.querySelector('.time-stamp');
-        
-        notDetectedText.style.display = 'none';
-        plateNumberText.style.display = 'block';
-        timeStampText.style.display = 'block';
-        
-        plateNumberText.textContent = `Targa e fundit e zbuluar: ${lastDetectedPlate}`;
-        timeStampText.textContent = `Koha e zbulimit: ${lastDetectionTime}`;
-    }
-    
-    // Camera control event listener
-    startBtn.addEventListener('click', function() {
-        if (!isScanning) {
-            startCamera();
-        } else {
-            stopCamera();
+
+    // Event delegation for dynamic elements
+    document.addEventListener('click', function(event) {
+        try {
+            if (event.target.matches('.plate-image')) {
+                openFullScreen(event.target);
+            }
+            if (event.target.matches('.delete-btn')) {
+                const plateId = event.target.dataset.plateId;
+                if (plateId) openModal(`/delete_plate/${plateId}`);
+            }
+        } catch (error) {
+            console.error('Event handling error:', error);
         }
     });
 
-    function startCamera() {
-        fetch('/start_camera')
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    startBtn.textContent = 'Stop Camera';
-                    startBtn.disabled = false;
-                    isScanning = true;
+    // Data fetching functions
+    async function fetchDetectedPlates() {
+        try {
+            const response = await fetch('/api/detected_plates');
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            
+            const data = await response.json();
+            const platesContainer = document.getElementById('platesContainer');
+            
+            if (!platesContainer) {
+                console.warn('Plates container not found');
+                return;
+            }
+
+            platesContainer.innerHTML = '';
+            (data || []).forEach(plate => {
+                const plateDiv = document.createElement('div');
+                plateDiv.className = 'plate-entry';
+
+                const plateInfo = document.createElement('div');
+                plateInfo.className = 'plate-info';
+                plateInfo.innerHTML = `
+                    <h3>Targa: ${plate.plate_number || 'N/A'}</h3>
+                    <p>Koha: ${plate.timestamp ? new Date(plate.timestamp).toLocaleString() : 'N/A'}</p>
+                `;
+
+                if (plate.image_path) {
+                    const img = document.createElement('img');
+                    img.src = plate.image_path;
+                    img.alt = `Plate ${plate.plate_number || ''}`;
+                    img.className = 'plate-image';
+                    plateDiv.appendChild(img);
                 }
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'delete-btn';
+                deleteBtn.textContent = 'Fshi';
+                deleteBtn.dataset.plateId = plate.id || '';
+                plateDiv.append(plateInfo, deleteBtn);
+                platesContainer.appendChild(plateDiv);
             });
+        } catch (error) {
+            console.error('Plate fetch error:', error);
+        }
     }
 
-    function stopCamera() {
-        fetch('/stop_camera')
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    startBtn.textContent = 'Start Camera';
-                    startBtn.disabled = false;
-                    isScanning = false;
-                }
-            });
-    }
-
-    function fetchStats() {
-        fetch('/get_stats')
-            .then(response => response.json())
-            .then(data => {
-                // Update statistics elements
-                document.getElementById('total-detections').textContent = data.total_detections;
-                document.getElementById('unique-plates').textContent = data.unique_plates;
+    async function fetchStats() {
+        try {
+            const response = await fetch('/get_stats');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            
+            // Add null checks for all data properties
+            const safeData = {
+                total_detections: data.total_detections || 0,
+                unique_plates: data.unique_plates || 0,
+                top_plates: data.top_plates || [],
+                hour_distribution: data.hour_distribution || []
+            };
     
-                const topPlatesList = document.getElementById('top-plates');
-                topPlatesList.innerHTML = data.top_plates
-                    .map(p => `<li>${p.plate_number}: ${p.count} herë</li>`)
+            // Update elements with safe data
+            updateElement('total-detections', safeData.total_detections);
+            updateElement('unique-plates', safeData.unique_plates);
+            
+            // Handle top plates
+            const topPlatesList = document.getElementById('top-plates');
+            if (topPlatesList) {
+                topPlatesList.innerHTML = safeData.top_plates
+                    .slice(0, 5) // Ensure only top 5
+                    .map(p => `<li>${p.plate_number || 'Unknown'}: ${p.count || 0}</li>`)
                     .join('');
+            }
     
-                const currentTimezoneOffset = new Date().getTimezoneOffset() / 60;
-                const hourDist = document.getElementById('hour-distribution');
-                hourDist.innerHTML = data.hour_distribution.map(h => {
-                    let localHour = h.hour - currentTimezoneOffset;
-                    if (localHour < 0) localHour += 24;
-                    if (localHour >= 24) localHour -= 24;
-                    return `${localHour}:00 - ${h.count} detektime`;
-                }).join('<br>');
-            })
-            .catch(error => console.error('Error fetching stats:', error));
-    
-        // Fetch camera status and update button text
-        fetch('/get_camera_status')
-            .then(response => response.json())
-            .then(data => {
-                const startBtn = document.getElementById('start-btn');
-                let isScanning = data.is_running; // The camera status returned from the API
-                
-                // Update button text based on camera status
-                startBtn.textContent = isScanning ? 'Stop Camera' : 'Start Camera';
-            })
-            .catch(error => {
-                console.error('Error checking camera status:', error);
-            });
+            // Handle hour distribution
+            const hourDist = document.getElementById('hour-distribution');
+            if (hourDist) {
+                hourDist.innerHTML = safeData.hour_distribution
+                    .map(h => `${h.hour}:00 - ${h.count}`)
+                    .join('<br>');
+            }
+        } catch (error) {
+            console.error('Stats fetch error:', error);
+            // Update UI to show error state
+            updateElement('total-detections', 'Error');
+            updateElement('unique-plates', 'Error');
+        }
     }
     
+    function updateElement(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    }
+    
+    // Modify fetchDetectedPlates to check for container existence
+    async function fetchDetectedPlates() {
+        try {
+            const platesContainer = document.getElementById('platesContainer');
+            if (!platesContainer) {
+                console.warn('Plates container not found - might be on wrong page');
+                return;
+            }
+            
+            // Rest of your plate fetching logic
+        } catch (error) {
+            console.error('Plate fetch error:', error);
+        }
+    }
 
+        // Update camera status
+        fetch('/get_camera_status')
+            .then(response => {
+                if (!response.ok) throw new Error('Camera status check failed');
+                return response.json();
+            })
+            .then(data => {
+                if (startBtn) {
+                    isScanning = data.is_running;
+                    startBtn.textContent = isScanning ? 'Stop Camera' : 'Start Camera';
+                }
+            })
+            .catch(error => console.error('Camera status error:', error));
+    }
+
+    // Camera controls
+    async function startCamera() {
+        try {
+            const response = await fetch('/start_camera');
+            if (!response.ok) throw new Error('Start failed');
+            const data = await response.json();
+            isScanning = data.status === 'success';
+            startBtn.textContent = 'Stop Camera';
+        } catch (error) {
+            console.error('Camera start error:', error);
+            alert('Failed to start camera');
+        }
+    }
+
+    async function stopCamera() {
+        try {
+            const response = await fetch('/stop_camera');
+            if (!response.ok) throw new Error('Stop failed');
+            const data = await response.json();
+            isScanning = data.status !== 'success';
+            startBtn.textContent = 'Start Camera';
+        } catch (error) {
+            console.error('Camera stop error:', error);
+            alert('Failed to stop camera');
+        }
+    }
+
+    // Update plate information display
     function updatePlateInfo() {
         fetch('/get_last_detected_plate')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) throw new Error('Plate info fetch failed');
+                return response.json();
+            })
             .then(data => {
                 const plateInfoDiv = document.getElementById('plate-info');
-                const notDetectedText = plateInfoDiv.querySelector('.not-detected');
-                const plateNumberText = plateInfoDiv.querySelector('.plate-number');
-                const timeStampText = plateInfoDiv.querySelector('.time-stamp');
-                const scanningText = plateInfoDiv.querySelector('.scanning-status');
+                if (!plateInfoDiv) return;
 
-                // Update scanning status if it exists
-                if (scanningText) {
-                    if (isScanning) {
-                        scanningText.textContent = 'Kamera është aktive - Duke skanuar targat...';
-                        scanningText.style.color = '#28a745';  // Green color for active status
-                    } else {
-                        scanningText.textContent = 'Kamera është ndalur';
-                        scanningText.style.color = '#dc3545';  // Red color for stopped status
-                    }
+                const elements = {
+                    notDetected: plateInfoDiv.querySelector('.not-detected'),
+                    plateNumber: plateInfoDiv.querySelector('.plate-number'),
+                    timeStamp: plateInfoDiv.querySelector('.time-stamp'),
+                    scanning: plateInfoDiv.querySelector('.scanning-status')
+                };
+
+                if (elements.scanning) {
+                    elements.scanning.textContent = isScanning 
+                        ? 'Kamera është aktive - Duke skanuar targat...'
+                        : 'Kamera është ndalur';
+                    elements.scanning.style.color = isScanning ? '#28a745' : '#dc3545';
                 }
 
-                if (data.plate) {
-                    // Only update if this is a new plate
-                    if (data.plate !== lastDetectedPlate) {
-                        lastDetectedPlate = data.plate;
-                        lastDetectionTime = data.detection_time;
-                        
-                        // Store in localStorage
+                // Update plate data only if changed
+                if (data.plate && data.plate !== lastDetectedPlate) {
+                    lastDetectedPlate = data.plate;
+                    lastDetectionTime = data.detection_time;
+                    
+                    try {
                         localStorage.setItem('lastDetectedPlate', lastDetectedPlate);
                         localStorage.setItem('lastDetectionTime', lastDetectionTime);
-                        
-                        notDetectedText.style.display = 'none';
-                        plateNumberText.style.display = 'block';
-                        timeStampText.style.display = 'block';
-                        
-                        plateNumberText.textContent = `Targa e zbuluar: ${data.plate}`;
-                        timeStampText.textContent = `Koha e zbulimit: ${data.detection_time}`;
-                        
-                        plateNumberText.classList.add('highlight');
-                        setTimeout(() => plateNumberText.classList.remove('highlight'), 1000);
+                    } catch (e) {
+                        console.error('LocalStorage error:', e);
                     }
-                } else {
-                    // No new plate detected - keep showing the last detected plate if we have one
-                    if (lastDetectedPlate) {
-                        notDetectedText.style.display = 'none';
-                        plateNumberText.style.display = 'block';
-                        timeStampText.style.display = 'block';
-                        
-                        plateNumberText.textContent = `Targa e fundit e zbuluar: ${lastDetectedPlate}`;
-                        timeStampText.textContent = `Koha e zbulimit: ${lastDetectionTime}`;
-                    } else {
-                        notDetectedText.style.display = 'block';
-                        notDetectedText.textContent = 'Asnjë targë nuk është zbuluar ende';
-                        plateNumberText.style.display = 'none';
-                        timeStampText.style.display = 'none';
+
+                    if (elements.plateNumber && elements.timeStamp) {
+                        elements.plateNumber.textContent = `Targa e zbuluar: ${lastDetectedPlate}`;
+                        elements.timeStamp.textContent = `Koha e zbulimit: ${lastDetectionTime}`;
+                        elements.plateNumber.classList.add('highlight');
+                        setTimeout(() => elements.plateNumber.classList.remove('highlight'), 1000);
                     }
                 }
+
+                // Toggle visibility
+                ['notDetected', 'plateNumber', 'timeStamp'].forEach(key => {
+                    if (elements[key]) {
+                        elements[key].style.display = lastDetectedPlate && key !== 'notDetected' 
+                            ? 'block' 
+                            : 'none';
+                    }
+                });
             })
-            .catch(error => {
-                console.error('Error:', error);
-                const scanningText = document.getElementById('plate-info').querySelector('.scanning-status');
-                if (scanningText) {
-                    scanningText.textContent = 'Gabim në lidhjen me sistemin e kamerës';
-                    scanningText.style.color = '#dc3545';
-                }
-            });
+            .catch(error => console.error('Plate info error:', error));
     }
 
-    // Set up plate info updates
-    setInterval(updatePlateInfo, 1000);
-    updatePlateInfo(); // Initial update
+    // Cleanup
+    window.addEventListener('beforeunload', () => {
+        clearInterval(statsInterval);
+        clearInterval(platesInterval);
+        clearInterval(plateInfoInterval);
+    });
 
-    // Make functions available globally if needed
+    // Global exposure
     window.openFullScreen = openFullScreen;
     window.closeFullScreen = closeFullScreen;
     window.openModal = openModal;
     window.closeModal = closeModal;
-})
+});

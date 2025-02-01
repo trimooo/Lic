@@ -7,7 +7,6 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='images.css') }}">
 </head>
 <body>
-
     <div class="container">
         <h1>Paneli i zbulimit të targave</h1>
 
@@ -22,93 +21,72 @@
         <div class="search-upload-container">
             <div class="form-container search-container">
                 <h2>Kërko Targën e Vetures</h2>
-                <form action="{{ url_for('search_images') }}" method="post">
-                    <div class="input-group">
-                        <input type="text" name="search" placeholder="Kërko për targë ose kohë" class="input-field">
-                        <select name="search_type" class="input-field">
-                            <option value="plate" {% if search_type == 'plate' %}selected{% endif %}>Numri i Targës</option>
-                            <option value="time" {% if search_type == 'time' %}selected{% endif %}>Koha</option>
-                            <option value="location" {% if search_type == 'location' %}selected{% endif %}>Lokacioni</option>
-                        </select>
-                        <button type="submit" class="btn primary-btn">Kërko</button>
-                    </div>
-                </form>
-            </div>
-
-            <!-- Upload Section -->
-            <div class="form-container upload-container">
-                <h2>Ngarko një Targë të re</h2>
                 <form action="{{ url_for('upload_plate') }}" method="post" enctype="multipart/form-data">
-                    <input type="text" name="plate_number" required placeholder="Numri i Targës së Vetures" class="input-field">
-                    <input type="text" name="location" required placeholder="Lokacioni" class="input-field">
-                    <input type="file" name="bw_image" required class="input-field">
-                    <input type="file" name="original_image" required class="input-field">
-                    <button type="submit" class="btn primary-btn">Ngarko</button>
+                    <div class="form-group">
+                        <label for="plate_number">Numri i targës:</label>
+                        <input type="text" id="plate_number" name="plate_number" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="location">Vendndodhja:</label>
+                        <input type="text" id="location" name="location" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="original_image">Ngarko imazhin origjinal:</label>
+                        <input type="file" id="original_image" name="original_image" accept="image/*" required>
+                    </div>
+                    <button type="submit" class="primary">Ngarko targën</button>
+                    {% if error %}
+                    <div class="error-message">
+                        {{ error }}
+                    </div>
+                    {% endif %}
                 </form>
             </div>
         </div>
 
-        <div id="plates-container"></div>
         <!-- Detected Plates Section -->
-        <div class="plates-container">
-            <div class="plates-container">
-                <h2>Targat e Detektuara</h2><br>
-                {% if plates %}
-                    {% for plate in plates %}
-                    <div class="plate-card">
-                        <div class="plate-info">
-                            <strong>Numri i Targës:</strong> {{ plate['plate_number'] }}
-                        </div>
-                        <div class="plate-info">
-                            <strong>Koha:</strong> {{ plate['timestamp'] }}
-                        </div>
-                        <div class="plate-info">
-                            <strong>Rruga:</strong> {{ plate['street'] }}
-                        </div>
-                        <div class="plate-info">
-                            <strong>Qyteti:</strong> {{ plate['city'] }}
-                        </div>
-    
-                        {% if plate['original_image_path'] %}
-                        <img src="{{ url_for('uploaded_file', folder='originals', filename=plate['original_image_path']) }}" alt="Imazhi Origjinal" class="plate-image" onclick="openFullScreen(this)">
-                        {% else %}
-                            <p>Nuk ka imazh origjinal të disponueshëm.</p>
-                        {% endif %}
-    
-                        {% if plate['bw_image_path'] %}
-                        <img src="{{ url_for('uploaded_file', folder='blackwhite', filename=plate['bw_image_path']) }}" alt="Imazhi Bardh e Zi" class="plate-image" onclick="openFullScreen(this)">
-                        {% else %}
-                            <p>Nuk disponohet asnjë imazh bardh e zi.</p>
-                        {% endif %}
-                        
-                        <button type="button" class="btn delete-btn" onclick="openModal('{{ url_for('delete_plate', plate_id=plate['id']) }}')">Fshij</button>
+        <div class="detected-plates">
+            {% if plates %}
+                {% for plate in plates %}
+                <div class="plate-entry">
+                    <div class="plate-info">
+                        <h3>Targa: {{ plate.plate_number }}</h3>
+                        <p>Koha: {{ plate.timestamp }}</p>
                     </div>
-                    {% endfor %}
-                {% else %}
-                    <p>Nuk është zbuluar ende asnjë targë.</p>
-                {% endif %}
+                    {% if plate.original_image_path %}
+                    <img src="{{ url_for('uploaded_file', folder='originals', filename=plate.original_image_path) }}" 
+                        alt="Imazhi Origjinal" 
+                        class="plate-image" 
+                        onclick="openFullScreen(this)">
+                    {% endif %}
+                    <button class="delete-btn" onclick="openModal('{{ url_for("delete_plate", id=plate.id) }}')">Fshi</button>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p>Nuk është zbuluar ende asnjë targë.</p>
+            {% endif %}
+        </div>
+
+        <!-- Delete Confirmation Modal -->
+        <div id="confirmation-modal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeModal()">&times;</span>
+                <h2>Je i sigurt që dëshiron ta fshish këtë Targë?</h2>
+                <form id="delete-form" action="" method="post">
+                    <div class="modal-buttons">
+                        <button type="submit" class="btn delete-btn">Po, Fshij</button>
+                        <button type="button" class="btn secondary-btn" onclick="closeModal()">Anuloje</button>
+                    </div>
+                </form>
             </div>
         </div>
 
- <!-- Delete Confirmation Modal -->
- <div id="confirmation-modal" class="modal">
-    <div class="modal-content">
-        <span class="close" onclick="closeModal()">&times;</span>
-        <h2>Je i sigurt që dëshiron ta fshish këtë Targë?</h2>
-        <form id="delete-form" action="" method="post">
-            <div class="modal-buttons">
-                <button type="submit" class="btn delete-btn">Po, Fshij</button>
-                <button type="button" class="btn secondary-btn" onclick="closeModal()">Anuloje</button>
-            </div>
-        </form>
+        <!-- Fullscreen Image Modal -->
+        <div id="fullscreen-modal" class="fullscreen-modal">
+            <span class="close" onclick="closeFullScreen()">&times;</span>
+            <img class="fullscreen-image" id="fullscreen-img" alt="Fullscreen view">
+        </div>
     </div>
-</div>
-
-<!-- Fullscreen Image Modal -->
-<div id="fullscreen-modal" class="fullscreen-modal">
-    <span class="close" onclick="closeFullScreen()">&times;</span>
-    <img class="fullscreen-image" id="fullscreen-img" alt="Fullscreen view">
-</div>
 
     <script src="{{ url_for('static', filename='images.js') }}"></script>
 </body>
