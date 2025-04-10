@@ -36,9 +36,9 @@ os.makedirs(originals_folder, exist_ok=True)
 # Configuration
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 TESSERACT_CONFIG = r'--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-'
-HAAR_CASCADE_PATH = [
+HAAR_CASCADE_PATHS = [
     cv2.data.haarcascades + 'haarcascade_russian_plate_number.xml',
-    'haarcascade_european_plate_number.xml'
+    os.path.join(os.path.dirname(__file__), 'haarcascade_european_plate_number.xml')
 ]
 
 def load_cascades():
@@ -57,10 +57,17 @@ plate_cascades = load_cascades()
 def static_files(filename):
     return send_from_directory('static', filename)
 
-# Initialize plate cascade
-plate_cascade = cv2.CascadeClassifier(HAAR_CASCADE_PATH)
-if plate_cascade.empty():
-    raise SystemError("Failed to load cascade file. Check path: " + HAAR_CASCADE_PATH)
+# Initialize plate cascades
+plate_cascades = []
+for cascade_path in HAAR_CASCADE_PATHS:
+    cascade = cv2.CascadeClassifier(cascade_path)
+    if not cascade.empty():
+        plate_cascades.append(cascade)
+    else:
+        print(f"Warning: Failed to load cascade file: {cascade_path}")
+
+if not plate_cascades:
+    raise SystemError("Failed to load any cascade files. Check paths: " + str(HAAR_CASCADE_PATHS))
 
 
 
