@@ -615,8 +615,8 @@ if __name__ == '__main__':
     else:
         logger.error("Failed to initialize camera")
     
-    # Start Flask app
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Start Flask app without threaded mode
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=False)
 @app.route('/api/camera/mode', methods=['POST'])
 def set_camera_mode():
     mode = request.json.get('mode')
