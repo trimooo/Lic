@@ -19,6 +19,14 @@ class CameraHandler:
         self.processing_frame = None
         self.is_running = False
         self.current_mode = CameraMode.NORMAL
+        self.detection_settings = {
+            'min_area': 500,
+            'min_width': 125,
+            'min_height': 30,
+            'min_ratio': 2.0,
+            'max_ratio': 5.0,
+            'debug': False
+        }
 
         # Load Haarcascade files
         self.cascade_files = [
@@ -77,3 +85,43 @@ class CameraHandler:
                 self.camera.release()
                 self.camera = None
             self.is_running = False
+
+    def detect_license_plate(self, frame):
+        if frame is None:
+            return None, None
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.equalizeHist(gray)
+
+        plates = self.plate_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(self.detection_settings['min_width'], self.detection_settings['min_height'])
+        )
+
+        best_plate = None
+        best_score = 0
+        best_coords = None
+
+        for (x, y, w, h) in plates:
+            area = w * h
+            ratio = float(w) / h
+
+            if (area > self.detection_settings['min_area'] and 
+                self.detection_settings['min_ratio'] <= ratio <= self.detection_settings['max_ratio']):
+
+                plate_img = gray[y:y+h, x:x+w]
+                score = cv2.mean(plate_img)[0]  # Use brightness as a simple scoring method
+
+                if score > best_score:
+                    best_score = score
+                    best_plate = plate_img
+                    best_coords = (x, y, w, h)
+
+        if best_plate is not None:
+            # Additional preprocessing for OCR
+            best_plate = cv2.GaussianBlur(best_plate, (5, 5), 0)
+            best_plate = cv2.threshold(best_plate, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+
+        return best_plate, best_coords
