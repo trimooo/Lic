@@ -6,6 +6,7 @@ import os
 import geocoder
 from geopy.geocoders import Nominatim
 from flask import Flask, render_template, Response, send_from_directory, request, jsonify, redirect, url_for
+from camera_handler import AdvancedCameraHandler, CameraMode
 from datetime import datetime
 import sqlite3
 from collections import defaultdict
@@ -115,7 +116,7 @@ class CameraHandler:
             self.is_running = False
 
 # Global instances
-camera_handler = CameraHandler()
+camera_handler = AdvancedCameraHandler()
 current_location = {
     'street': 'Unknown', 'city': 'Unknown', 'country': 'Unknown',
     'lat': 0.0, 'lon': 0.0, 'last_update': None
@@ -616,3 +617,26 @@ if __name__ == '__main__':
     
     # Start Flask app
     app.run(host='0.0.0.0', port=5000, debug=True)
+@app.route('/api/camera/mode', methods=['POST'])
+def set_camera_mode():
+    mode = request.json.get('mode')
+    if mode:
+        camera_handler.set_mode(mode)
+        return jsonify({'status': 'success', 'mode': mode})
+    return jsonify({'status': 'error', 'message': 'Invalid mode'}), 400
+
+@app.route('/api/camera/settings', methods=['POST'])
+def update_camera_settings():
+    settings = request.json
+    if settings:
+        camera_handler.update_settings(settings)
+        return jsonify({'status': 'success', 'settings': settings})
+    return jsonify({'status': 'error', 'message': 'Invalid settings'}), 400
+
+@app.route('/api/camera/status')
+def get_camera_status():
+    return jsonify({
+        'is_running': camera_handler.is_running,
+        'mode': camera_handler.current_mode,
+        'settings': camera_handler.detection_settings
+    })
