@@ -6,7 +6,7 @@ import os
 import geocoder
 from geopy.geocoders import Nominatim
 from flask import Flask, render_template, Response, send_from_directory, request, jsonify, redirect, url_for
-from camera_handler import AdvancedCameraHandler, CameraMode
+from camera_handler import CameraHandler, CameraMode
 from datetime import datetime
 import sqlite3
 from collections import defaultdict
@@ -116,7 +116,7 @@ class CameraHandler:
             self.is_running = False
 
 # Global instances
-camera_handler = AdvancedCameraHandler()
+camera_handler = CameraHandler()
 current_location = {
     'street': 'Unknown', 'city': 'Unknown', 'country': 'Unknown',
     'lat': 0.0, 'lon': 0.0, 'last_update': None
