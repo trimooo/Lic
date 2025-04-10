@@ -34,8 +34,23 @@ os.makedirs(originals_folder, exist_ok=True)
 
 # Configuration
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-TESSERACT_CONFIG = r'--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-HAAR_CASCADE_PATH = cv2.data.haarcascades + 'haarcascade_russian_plate_number.xml'
+TESSERACT_CONFIG = r'--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-'
+HAAR_CASCADE_PATH = [
+    cv2.data.haarcascades + 'haarcascade_russian_plate_number.xml',
+    'haarcascade_european_plate_number.xml'
+]
+
+def load_cascades():
+    cascades = []
+    for cascade_path in HAAR_CASCADE_PATH:
+        cascade = cv2.CascadeClassifier(cascade_path)
+        if not cascade.empty():
+            cascades.append(cascade)
+        else:
+            logger.error(f"Failed to load cascade file: {cascade_path}")
+    return cascades
+
+plate_cascades = load_cascades()
 
 @app.route('/static/<path:filename>')
 def static_files(filename):
@@ -131,7 +146,13 @@ def init_db():
                 original_image_path TEXT,
                 street TEXT,
                 city TEXT,
-                country TEXT
+                country TEXT,
+                vehicle_type TEXT,
+                alert_status TEXT,
+                police_notified BOOLEAN DEFAULT 0,
+                last_seen_location TEXT,
+                speed_recorded FLOAT,
+                direction TEXT
             )
         ''')
 
@@ -246,17 +267,10 @@ def handle_plate_detection(plate_number, frame, x, y, current_time):
     cv2.putText(frame, f"{current_location['street']}, {current_location['city']}",
                (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
 
+from european_plates import EuropeanPlateDetector
+
 def detect_country_code(plate_number):
-    patterns = {
-        r'^[A-Z]{2}\d{3,5}[A-Z]{2}$': 'AL',
-        r'^[A-Z]{2}\d{3,4}[A-Z]{2}$': 'RKS',
-        r'^\d{2}-[A-Z]{1,2}-\d{3}$': 'MK',
-        r'^[A-Z]{2}[A-Z0-9]{4,5}$': 'ME',
-    }
-    for pattern, code in patterns.items():
-        if re.match(pattern, plate_number):
-            return code
-    return 'Unknown'
+    return EuropeanPlateDetector.detect_country(plate_number)
 
 COUNTRY_CODES = {
     'AL': 'Albania', 'RKS': 'Kosovo', 'MK': 'North Macedonia',
