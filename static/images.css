@@ -79,11 +79,17 @@ body {
 }
 
 .plate-image {
-  width: 100%;
+  max-width: 300px;
+  margin: 10px;
+  width: auto;
   height: auto;
-  border-radius: 0.375rem;
-  margin: 0.5rem 0;
-  cursor: pointer;
+  contain: content;
+  will-change: transform;
+}
+
+.plate-entry {
+  contain: content;
+  content-visibility: auto;
 }
 
 .plate-info {

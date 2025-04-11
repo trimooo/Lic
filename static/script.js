@@ -1,133 +1,65 @@
 document.addEventListener('DOMContentLoaded', function() {
     const startBtn = document.getElementById('start-btn');
-    let lastDetectedPlate = localStorage.getItem('lastDetectedPlate');
-    let lastDetectionTime = localStorage.getItem('lastDetectionTime');
+    const plateInfoDiv = document.getElementById('plate-info');
+    const platesContainer = document.getElementById('platesContainer');
     let isScanning = true;
-    
-    // Initialize intervals
-    let statsInterval, platesInterval, plateInfoInterval;
-    
-    // Initial data fetch
-    try {
+
+    // Use more efficient intervals
+    const STATS_INTERVAL = 10000;  // 10 seconds
+    const PLATES_INTERVAL = 5000;  // 5 seconds
+    const PLATE_INFO_INTERVAL = 2000;  // 2 seconds
+
+    // Lazy load data
+    setTimeout(() => {
         fetchStats();
         fetchDetectedPlates();
         updatePlateInfo();
-        
-        statsInterval = setInterval(fetchStats, 5000);
-        platesInterval = setInterval(fetchDetectedPlates, 5000);
-        plateInfoInterval = setInterval(updatePlateInfo, 1000);
-    } catch (error) {
-        console.error('Initialization error:', error);
-    }
+    }, 100);
 
-    if (startBtn) {
-        startBtn.textContent = 'Stop Camera';
-        startBtn.addEventListener('click', function() {
-            if (!isScanning) startCamera();
-            else stopCamera();
-        });
-    }
+    // More efficient interval management
+    let activeIntervals = {
+        stats: setInterval(fetchStats, STATS_INTERVAL),
+        plates: setInterval(fetchDetectedPlates, PLATES_INTERVAL),
+        plateInfo: setInterval(updatePlateInfo, PLATE_INFO_INTERVAL)
+    };
 
-    // Image handling
+    // Image handling optimization
     function openFullScreen(img) {
-        try {
-            const modal = document.getElementById("fullscreen-modal");
-            const fullscreenImg = document.getElementById("fullscreen-img");
-            if (modal && fullscreenImg) {
-                fullscreenImg.src = img.src;
-                modal.style.display = "flex";
-            }
-        } catch (error) {
-            console.error('Fullscreen error:', error);
+        const modal = document.getElementById("fullscreen-modal");
+        const fullscreenImg = document.getElementById("fullscreen-img");
+        if (modal && fullscreenImg) {
+            fullscreenImg.src = img.src;
+            modal.style.display = "flex";
         }
     }
 
     function closeFullScreen() {
-        try {
-            const modal = document.getElementById("fullscreen-modal");
-            if (modal) modal.style.display = "none";
-        } catch (error) {
-            console.error('Close fullscreen error:', error);
-        }
+        const modal = document.getElementById("fullscreen-modal");
+        if (modal) modal.style.display = "none";
     }
 
-    // Confirmation modal
-    function openModal(actionUrl) {
-        try {
-            const modal = document.getElementById("confirmation-modal");
-            const deleteForm = document.getElementById("delete-form");
-            if (modal && deleteForm) {
-                deleteForm.action = actionUrl;
-                modal.style.display = "block";
-            }
-        } catch (error) {
-            console.error('Modal open error:', error);
-        }
-    }
-
-    function closeModal() {
-        try {
-            const modal = document.getElementById("confirmation-modal");
-            if (modal) modal.style.display = "none";
-        } catch (error) {
-            console.error('Modal close error:', error);
-        }
-    }
-
-    // Event delegation for dynamic elements
-    document.addEventListener('click', function(event) {
-        try {
-            if (event.target.matches('.plate-image')) {
-                openFullScreen(event.target);
-            }
-            if (event.target.matches('.delete-btn')) {
-                const plateId = event.target.dataset.plateId;
-                if (plateId) openModal(`/delete_plate/${plateId}`);
-            }
-        } catch (error) {
-            console.error('Event handling error:', error);
-        }
-    });
-
-    // Data fetching functions
+    // Optimized plate fetching
     async function fetchDetectedPlates() {
+        if (!platesContainer) return;
+
         try {
             const response = await fetch('/api/detected_plates');
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            
-            const data = await response.json();
-            const platesContainer = document.getElementById('platesContainer');
-            
-            if (!platesContainer) {
-                console.warn('Plates container not found');
-                return;
-            }
+            if (!response.ok) return;
 
+            const data = await response.json();
             platesContainer.innerHTML = '';
-            (data || []).forEach(plate => {
+
+            data.forEach(plate => {
                 const plateDiv = document.createElement('div');
                 plateDiv.className = 'plate-entry';
-
-                const plateInfo = document.createElement('div');
-                plateInfo.className = 'plate-info';
-                plateInfo.innerHTML = `
-                    <h3>Targa: ${plate.plate_number || 'N/A'}</h3>
-                    <p>Koha: ${plate.timestamp ? new Date(plate.timestamp).toLocaleString() : 'N/A'}</p>
+                plateDiv.innerHTML = `
+                    <div class="plate-info">
+                        <h3>Plate: ${plate.plate_number || 'N/A'}</h3>
+                        <p>Time: ${plate.timestamp ? new Date(plate.timestamp).toLocaleString() : 'N/A'}</p>
+                    </div>
+                    ${plate.image_path ? `<img src="${plate.image_path}" alt="Plate ${plate.plate_number || ''}" class="plate-image" loading="lazy">` : ''}
+                    <button class="delete-btn" data-plate-id="${plate.id || ''}">Delete</button>
                 `;
-
-                if (plate.image_path) {
-                    const img = document.createElement('img');
-                    img.src = plate.image_path;
-                    img.alt = `Plate ${plate.plate_number || ''}`;
-                    img.className = 'plate-image';
-                    plateDiv.appendChild(img);
-                }
-
-                const deleteBtn = document.createElement('button');
-                deleteBtn.className = 'delete-btn';
-                deleteBtn.textContent = 'Fshi';
-                deleteBtn.dataset.plateId = plate.id || '';
-                plateDiv.append(plateInfo, deleteBtn);
                 platesContainer.appendChild(plateDiv);
             });
         } catch (error) {
@@ -135,6 +67,28 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // Event delegation
+    document.addEventListener('click', function(event) {
+        if (event.target.matches('.plate-image')) {
+            openFullScreen(event.target);
+        }
+        if (event.target.matches('.delete-btn')) {
+            const plateId = event.target.dataset.plateId;
+            if (plateId) openModal(`/delete_plate/${plateId}`);
+        }
+    });
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+        Object.values(activeIntervals).forEach(interval => clearInterval(interval));
+    });
+
+    // Expose necessary functions
+    window.openFullScreen = openFullScreen;
+    window.closeFullScreen = closeFullScreen;
+
+
+    //The rest of the original code that was not modified in the edited snippet
     async function fetchStats() {
         try {
             const response = await fetch('/get_stats');
@@ -183,36 +137,29 @@ document.addEventListener('DOMContentLoaded', function() {
         const el = document.getElementById(id);
         if (el) el.textContent = value;
     }
-    
-    // Modify fetchDetectedPlates to check for container existence
-    async function fetchDetectedPlates() {
-        try {
-            const platesContainer = document.getElementById('platesContainer');
-            if (!platesContainer) {
-                console.warn('Plates container not found - might be on wrong page');
-                return;
-            }
-            
-            // Rest of your plate fetching logic
-        } catch (error) {
-            console.error('Plate fetch error:', error);
-        }
+
+    if (startBtn) {
+        startBtn.textContent = 'Stop Camera';
+        startBtn.addEventListener('click', function() {
+            if (!isScanning) startCamera();
+            else stopCamera();
+        });
     }
 
-        // Update camera status
-        fetch('/get_camera_status')
-            .then(response => {
-                if (!response.ok) throw new Error('Camera status check failed');
-                return response.json();
-            })
-            .then(data => {
-                if (startBtn) {
-                    isScanning = data.is_running;
-                    startBtn.textContent = isScanning ? 'Stop Camera' : 'Start Camera';
-                }
-            })
-            .catch(error => console.error('Camera status error:', error));
-    }
+    // Update camera status
+    fetch('/get_camera_status')
+        .then(response => {
+            if (!response.ok) throw new Error('Camera status check failed');
+            return response.json();
+        })
+        .then(data => {
+            if (startBtn) {
+                isScanning = data.is_running;
+                startBtn.textContent = isScanning ? 'Stop Camera' : 'Start Camera';
+            }
+        })
+        .catch(error => console.error('Camera status error:', error));
+    
 
     // Camera controls
     async function startCamera() {
@@ -249,7 +196,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 return response.json();
             })
             .then(data => {
-                const plateInfoDiv = document.getElementById('plate-info');
                 if (!plateInfoDiv) return;
 
                 const elements = {
@@ -298,16 +244,30 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => console.error('Plate info error:', error));
     }
 
-    // Cleanup
-    window.addEventListener('beforeunload', () => {
-        clearInterval(statsInterval);
-        clearInterval(platesInterval);
-        clearInterval(plateInfoInterval);
-    });
+    // Confirmation modal
+    function openModal(actionUrl) {
+        try {
+            const modal = document.getElementById("confirmation-modal");
+            const deleteForm = document.getElementById("delete-form");
+            if (modal && deleteForm) {
+                deleteForm.action = actionUrl;
+                modal.style.display = "block";
+            }
+        } catch (error) {
+            console.error('Modal open error:', error);
+        }
+    }
 
-    // Global exposure
-    window.openFullScreen = openFullScreen;
-    window.closeFullScreen = closeFullScreen;
+    function closeModal() {
+        try {
+            const modal = document.getElementById("confirmation-modal");
+            if (modal) modal.style.display = "none";
+        } catch (error) {
+            console.error('Modal close error:', error);
+        }
+    }
+
+    //Global exposure of functions that are not modified
     window.openModal = openModal;
     window.closeModal = closeModal;
 });
