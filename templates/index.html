@@ -19,7 +19,7 @@
             background: rgba(0,0,0,0.5);
             z-index: 999;
         }
-        
+
         .alert-popup {
             display: none;
             position: fixed;
@@ -32,7 +32,7 @@
             z-index: 1000;
             max-width: 400px;
         }
-        
+
         .alert-popup.show, .overlay.show {
             display: block;
         }
@@ -44,8 +44,8 @@
             <div class="video-container glass fade-in-up">
                 <img src="{{ url_for('video_feed') }}" alt="Video Feed" id="video-feed">
             </div>
-            <div class="side-panel">
-                <div class="plate-info glass fade-in-up">
+            <div class="side-panel" style="contain: size layout">
+                <div class="plate-info glass fade-in-up" style="contain: size layout">
                     <h2>Statusi i targës</h2>
                     <div id="plate-info">
                         <p class="scanning-status"></p>

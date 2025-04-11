@@ -63,6 +63,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  min-height: 100vh;
+  width: 100%;
+  max-width: 400px;
 }
 
 .glass {
@@ -72,6 +75,21 @@ body {
   border-radius: 1rem;
   padding: 1.5rem;
   box-shadow: var(--glass-shadow);
+  min-height: 100px;
+  contain: content;
+}
+
+.plate-info {
+  min-height: 150px;
+}
+
+.controls {
+  min-height: 120px;
+}
+
+.stats {
+  height: auto;
+  min-height: 200px;
 }
 
 .controls {
