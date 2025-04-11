@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000
+app.config['TEMPLATES_AUTO_RELOAD'] = False
 
 # Add near top of app.py
 originals_folder = os.path.join('web_output', 'originals')

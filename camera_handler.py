@@ -31,10 +31,10 @@ class CameraHandler:
         # Load Haarcascade files with improved parameters
         self.russian_cascade = cv2.CascadeClassifier('haarcascade_russian_plate_number.xml')
         self.european_cascade = cv2.CascadeClassifier('haarcascade_european_plate_number.xml')
-        
+
         if self.russian_cascade.empty() or self.european_cascade.empty():
             logging.error("Error loading cascade files")
-            
+
         self.detection_params = {
             'scaleFactor': 1.1,
             'minNeighbors': 5,
@@ -45,14 +45,16 @@ class CameraHandler:
     def initialize(self, camera_index=0):
         with self.lock:
             if self.camera is None:
-                self.camera = cv2.VideoCapture(camera_index)
+                self.camera = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
+                self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                 if not self.camera.isOpened():
                     logging.error("Failed to initialize camera")
                     return False
 
                 # Set camera properties
-                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                
                 self.camera.set(cv2.CAP_PROP_AUTOFOCUS, 1)
                 self.camera.set(cv2.CAP_PROP_BRIGHTNESS, 150)
                 self.is_running = True
@@ -66,7 +68,7 @@ class CameraHandler:
                 if ret:
                     # Detect license plates
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    for cascade in self.cascade_files:
+                    for cascade in [self.russian_cascade, self.european_cascade]: #Corrected this line to iterate correctly
                         plates = cascade.detectMultiScale(gray, 1.1, 4)
                         for (x, y, w, h) in plates:
                             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)

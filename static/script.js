@@ -1,4 +1,22 @@
+const debounce = (func, wait) => {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+};
+
 document.addEventListener('DOMContentLoaded', function() {
+    // Cache DOM elements
+    const elements = {
+        startBtn: document.getElementById('start-btn'),
+        plateInfo: document.getElementById('plate-info'),
+        platesContainer: document.getElementById('platesContainer')
+    };
     const startBtn = document.getElementById('start-btn');
     const plateInfoDiv = document.getElementById('plate-info');
     const platesContainer = document.getElementById('platesContainer');
