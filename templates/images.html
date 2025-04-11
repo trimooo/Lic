@@ -38,6 +38,17 @@
             </div>
         </div>
 
+        <div class="search-container">
+            <form method="post" action="{{ url_for('search_images') }}">
+                <select name="search_type">
+                    <option value="plate">Plate Number</option>
+                    <option value="time">Time</option>
+                </select>
+                <input type="text" name="search" placeholder="Search...">
+                <button type="submit">Search</button>
+            </form>
+        </div>
+
         <div class="plates-grid">
             {% if plates %}
                 {% for plate in plates %}
@@ -77,8 +88,8 @@
     </div>
 
     <div id="fullscreen-modal" class="fullscreen-modal">
-        <span class="close" onclick="closeFullScreen()">&times;</span>
-        <img id="fullscreen-img" alt="Fullscreen view" />
+        <span class="close-btn" onclick="closeFullscreen()">&times;</span>
+        <img id="fullscreen-img" class="fullscreen-img" src="" alt="Fullscreen view">
     </div>
 
     <script src="{{ url_for('static', filename='images.js') }}" defer></script>

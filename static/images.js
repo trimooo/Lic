@@ -11,6 +11,24 @@ function closeModal() {
     document.getElementById('confirmation-modal').style.display = 'none';
 }
 
+function openFullscreen(img) {
+    const modal = document.getElementById('fullscreen-modal');
+    const fullscreenImg = document.getElementById('fullscreen-img');
+    fullscreenImg.src = img.src;
+    modal.style.display = 'block';
+}
+
+function closeFullscreen() {
+    document.getElementById('fullscreen-modal').style.display = 'none';
+}
+
+// Close fullscreen on ESC key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeFullscreen();
+    }
+});
+
 // Handle form submission for deletion
 document.getElementById('delete-form').addEventListener('submit', function (e) {
     e.preventDefault();  // Prevent default form submission

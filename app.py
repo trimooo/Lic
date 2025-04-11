@@ -431,6 +431,34 @@ def images():
         logger.error(f"Images error: {str(e)}")
         return render_template('images.html', plates=[])
 
+@app.route('/search', methods=['GET', 'POST'])
+def search_images():
+    search_query = request.form.get('search', '')
+    search_type = request.form.get('search_type', 'plate')
+    
+    try:
+        with get_db_connection() as conn:
+            if search_type == 'plate':
+                plates = conn.execute('''
+                    SELECT * FROM plates 
+                    WHERE plate_number LIKE ? 
+                    ORDER BY timestamp DESC
+                ''', (f'%{search_query}%',)).fetchall()
+            else:  # time search
+                plates = conn.execute('''
+                    SELECT * FROM plates 
+                    WHERE timestamp LIKE ?
+                    ORDER BY timestamp DESC
+                ''', (f'%{search_query}%',)).fetchall()
+        
+        return render_template('images.html', 
+                             plates=plates,
+                             search_query=search_query,
+                             search_type=search_type)
+    except Exception as e:
+        logger.error(f"Search error: {str(e)}")
+        return render_template('images.html', plates=[], error="Search failed")
+
 def handle_plate_detection(plate_number, frame, x, y, current_time):
     country_code = detect_country_code(plate_number)
     country_name = COUNTRY_CODES.get(country_code, 'Unknown')
