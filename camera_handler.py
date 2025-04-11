@@ -28,15 +28,19 @@ class CameraHandler:
             'debug': False
         }
 
-        # Load Haarcascade files
-        self.cascade_files = [
-            cv2.CascadeClassifier('haarcascade_russian_plate_number.xml'),
-            cv2.CascadeClassifier('haarcascade_european_plate_number.xml')
-        ]
-
-        for cascade in self.cascade_files:
-            if cascade.empty():
-                logging.error("Error loading cascade file")
+        # Load Haarcascade files with improved parameters
+        self.russian_cascade = cv2.CascadeClassifier('haarcascade_russian_plate_number.xml')
+        self.european_cascade = cv2.CascadeClassifier('haarcascade_european_plate_number.xml')
+        
+        if self.russian_cascade.empty() or self.european_cascade.empty():
+            logging.error("Error loading cascade files")
+            
+        self.detection_params = {
+            'scaleFactor': 1.1,
+            'minNeighbors': 5,
+            'minSize': (60, 20),
+            'maxSize': (300, 100)
+        }
 
     def initialize(self, camera_index=0):
         with self.lock:
@@ -93,12 +97,26 @@ class CameraHandler:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.equalizeHist(gray)
 
-        plates = self.plate_cascade.detectMultiScale(
-            gray,
-            scaleFactor=1.1,
-            minNeighbors=5,
-            minSize=(self.detection_settings['min_width'], self.detection_settings['min_height'])
+        # Detect with both cascades
+        russian_plates = self.russian_cascade.detectMultiScale(
+            gray, 
+            scaleFactor=self.detection_params['scaleFactor'],
+            minNeighbors=self.detection_params['minNeighbors'],
+            minSize=self.detection_params['minSize'],
+            maxSize=self.detection_params['maxSize']
         )
+
+        european_plates = self.european_cascade.detectMultiScale(
+            gray,
+            scaleFactor=self.detection_params['scaleFactor'],
+            minNeighbors=self.detection_params['minNeighbors'],
+            minSize=self.detection_params['minSize'],
+            maxSize=self.detection_params['maxSize']
+        )
+
+        # Combine detections
+        plates = np.vstack((russian_plates, european_plates)) if len(russian_plates) and len(european_plates) else \
+                russian_plates if len(russian_plates) else european_plates
 
         best_plate = None
         best_score = 0

@@ -1,93 +1,86 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>License Plate Images</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='images.css') }}">
+    <title>License Plate Detection</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='images.css') }}" />
+    <link rel="preload" as="style" href="{{ url_for('static', filename='images.css') }}" />
 </head>
 <body>
     <div class="container">
-        <h1>Paneli i zbulimit të targave</h1>
+        <h1>License Plate Detection Panel</h1>
 
-        <!-- Navigation Buttons -->
-        <div class="navigation-buttons">
-            <a href="{{ url_for('index') }}" class="btn secondary-btn">Kthehu tek Kamera</a>
-            <a href="{{ url_for('images') }}" class="btn secondary-btn">Kthehu tek Kerkimi Universal</a>
-            <button onclick="location.reload();" class="btn secondary-btn">Refresko faqen</button>
+        <div class="control-panel">
+            <a href="{{ url_for('index') }}" class="btn secondary-btn">Back to Camera</a>
+            <button onclick="location.reload();" class="btn refresh-btn">Refresh</button>
         </div>
 
-        <!-- Search Section -->
         <div class="search-upload-container">
-            <div class="form-container search-container">
-                <h2>Kërko Targën e Vetures</h2>
-                <form action="{{ url_for('upload_plate') }}" method="post" enctype="multipart/form-data">
+            <div class="form-container">
+                <h2>License Plate Upload</h2>
+                <form action="{{ url_for('upload_plate') }}" method="post" enctype="multipart/form-data" class="upload-form">
                     <div class="form-group">
-                        <label for="plate_number">Numri i targës:</label>
-                        <input type="text" id="plate_number" name="plate_number" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="location">Vendndodhja:</label>
-                        <input type="text" id="location" name="location" required>
+                        <input type="text" id="plate_number" name="plate_number" required placeholder="Plate Number" />
                     </div>
                     <div class="form-group">
-                        <label for="original_image">Ngarko imazhin origjinal:</label>
-                        <input type="file" id="original_image" name="original_image" accept="image/*" required>
+                        <input type="text" id="location" name="location" required placeholder="Location" />
                     </div>
-                    <button type="submit" class="primary">Ngarko targën</button>
-                    {% if error %}
-                    <div class="error-message">
-                        {{ error }}
+                    <div class="form-group file-input">
+                        <label for="original_image">Original Image:</label>
+                        <input type="file" id="original_image" name="original_image" accept="image/*" required />
                     </div>
-                    {% endif %}
+                    <button type="submit" class="btn primary-btn">Upload Plate</button>
                 </form>
+                {% if error %}
+                <div class="error-message">{{ error }}</div>
+                {% endif %}
             </div>
         </div>
 
-        <!-- Detected Plates Section -->
-        <div class="detected-plates">
+        <div class="plates-grid">
             {% if plates %}
                 {% for plate in plates %}
-                <div class="plate-entry">
+                <div class="plate-card" data-plate="{{ plate.plate_number }}">
                     <div class="plate-info">
-                        <h3>Targa: {{ plate.plate_number }}</h3>
-                        <p>Koha: {{ plate.timestamp }}</p>
+                        <h3>{{ plate.plate_number }}</h3>
+                        <p>{{ plate.timestamp }}</p>
                     </div>
                     {% if plate.original_image_path %}
                     <img src="{{ url_for('uploaded_file', folder='originals', filename=plate.original_image_path) }}" 
-                        alt="Imazhi Origjinal" 
-                        class="plate-image" 
-                        onclick="openFullScreen(this)">
+                         alt="License Plate" 
+                         class="plate-image" 
+                         loading="lazy"
+                         onclick="openFullScreen(this)" />
                     {% endif %}
-                    <button class="delete-btn" onclick="openModal('{{ url_for("delete_plate", id=plate.id) }}')">Fshi</button>
+                    <button class="delete-btn" onclick="openModal('{{ url_for('delete_plate', id=plate.id) }}')">Delete</button>
                 </div>
                 {% endfor %}
             {% else %}
-                <p>Nuk është zbuluar ende asnjë targë.</p>
+                <p class="no-plates">No plates detected yet.</p>
             {% endif %}
-        </div>
-
-        <!-- Delete Confirmation Modal -->
-        <div id="confirmation-modal" class="modal">
-            <div class="modal-content">
-                <span class="close" onclick="closeModal()">&times;</span>
-                <h2>Je i sigurt që dëshiron ta fshish këtë Targë?</h2>
-                <form id="delete-form" action="" method="post">
-                    <div class="modal-buttons">
-                        <button type="submit" class="btn delete-btn">Po, Fshij</button>
-                        <button type="button" class="btn secondary-btn" onclick="closeModal()">Anuloje</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- Fullscreen Image Modal -->
-        <div id="fullscreen-modal" class="fullscreen-modal">
-            <span class="close" onclick="closeFullScreen()">&times;</span>
-            <img class="fullscreen-image" id="fullscreen-img" alt="Fullscreen view">
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='images.js') }}"></script>
+    <div id="confirmation-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2>Confirm Deletion</h2>
+            <form id="delete-form" method="post">
+                <div class="modal-buttons">
+                    <button type="submit" class="btn delete-btn">Delete</button>
+                    <button type="button" class="btn cancel-btn" onclick="closeModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="fullscreen-modal" class="fullscreen-modal">
+        <span class="close" onclick="closeFullScreen()">&times;</span>
+        <img id="fullscreen-img" alt="Fullscreen view" />
+    </div>
+
+    <script src="{{ url_for('static', filename='images.js') }}" defer></script>
 </body>
 </html>
